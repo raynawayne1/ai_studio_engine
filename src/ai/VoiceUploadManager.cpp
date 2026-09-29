@@ -2,6 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <cctype>
 
 namespace ai_studio::ai {
 
@@ -18,7 +19,9 @@ bool VoiceUploadManager::validate_source_media(std::string_view file_path) noexc
         }
 
         std::string ext = path.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
 
         // Verify high-fidelity audio/video codecs suitable for RVC feature extraction
         if (ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".m4a" && ext != ".mp4" && ext != ".mov") [[unlikely]] {
@@ -75,13 +78,6 @@ bool VoiceUploadManager::preprocess_voice_source(std::string_view profile_id, st
     processing_active_.store(false, std::memory_order_release);
     std::cout << "[Voice Preprocessing] Studio-grade voice profile '" << display_name << "' compiled and cached successfully.\n";
     return true;
-}
-
-const VoiceProfileMetadata* VoiceUploadManager::get_profile_metadata(std::string_view profile_id) const noexcept {
-    if (current_metadata_.profile_id == profile_id) [[likely]] {
-        return &current_metadata_;
-    }
-    return nullptr;
 }
 
 } // namespace ai_studio::ai

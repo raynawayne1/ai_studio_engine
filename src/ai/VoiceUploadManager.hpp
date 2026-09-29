@@ -6,6 +6,16 @@
 #include <atomic>
 #include <cstdint>
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4324) // structure was padded due to alignment specifier
+#define AI_FORCE_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define AI_FORCE_INLINE inline __attribute__((always_inline))
+#else
+#define AI_FORCE_INLINE inline
+#endif
+
 namespace ai_studio::ai {
 
 struct VoiceProfileMetadata {
@@ -36,10 +46,16 @@ public:
     // High-performance preprocessing & feature extraction pipeline (48kHz Mono PCM canonical target)
     [[nodiscard]] bool preprocess_voice_source(std::string_view profile_id, std::string_view display_name) noexcept;
 
-    // Retrieve active profile metadata with zero lookup latency
-    [[nodiscard]] const VoiceProfileMetadata* get_profile_metadata(std::string_view profile_id) const noexcept;
+    // Force-inlined profile metadata retrieval with zero function call overhead
+    [[nodiscard]] AI_FORCE_INLINE const VoiceProfileMetadata* get_profile_metadata(std::string_view profile_id) const noexcept {
+        if (current_metadata_.profile_id == profile_id) [[likely]] {
+            return &current_metadata_;
+        }
+        return nullptr;
+    }
 
-    [[nodiscard]] bool is_processing() const noexcept {
+    // Force-inlined atomic processing state check
+    [[nodiscard]] AI_FORCE_INLINE bool is_processing() const noexcept {
         return processing_active_.load(std::memory_order_relaxed);
     }
 
@@ -50,3 +66,9 @@ private:
 };
 
 } // namespace ai_studio::ai
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
+#undef AI_FORCE_INLINE
