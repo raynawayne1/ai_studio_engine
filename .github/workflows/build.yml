@@ -17,18 +17,19 @@ jobs:
         os: [ubuntu-24.04, macos-14, windows-2022]
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-    - name: Configure CMake
+    - name: Configure CMake (Release Mode)
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-    - name: Build Engine
-      run: cmake --build build --config Release
+    - name: Build Engine (Ultra-Fast Parallel Compilation)
+      run: cmake --build build --config Release --parallel
 
-    - name: Run Engine Binary (Windows)
+    - name: Run Engine Binary (Windows Smoke Test)
       run: ./build/Release/AIStudioEngine.exe
       if: runner.os == 'Windows'
 
-    - name: Run Engine Binary (Unix)
+    - name: Run Engine Binary (Unix Smoke Test)
       run: ./build/AIStudioEngine
       if: runner.os != 'Windows'
