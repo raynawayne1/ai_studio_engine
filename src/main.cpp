@@ -6,6 +6,7 @@
 #include <cstdint>
 #include "hw/HardwareManager.hpp"
 #include "core/AudioFramePool.hpp"
+#include "ai/InferenceEngine.hpp"
 
 consteval std::string_view getCompiler() {
 #if defined(_MSC_VER)
@@ -24,7 +25,6 @@ void run_zero_allocation_simulation() {
     std::cout << "\nStarting Zero-Allocation Audio Pool Simulation...\n";
     
     // Create a pool of 1024 frames, each holding 480 samples (10ms of 48kHz audio)
-    // This allocates all memory up front.
     ai_studio::core::AudioFramePool frame_pool(1024, 480);
     
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -58,7 +58,6 @@ void run_zero_allocation_simulation() {
             
             if (frame != nullptr) {
                 // Simulate running ONNX Inference on frame->samples here...
-                
                 processed_count++;
 
                 // Instantly recycle the memory back to the Microphone
@@ -81,19 +80,30 @@ void run_zero_allocation_simulation() {
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 4\n";
+    std::cout << " AI Studio Engine - Milestone 5\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
     std::cout << "C++ Standard   : " << __cplusplus << '\n';
     std::cout << "---------------------------------------\n";
     
+    // 1. Hardware Profile Detection
     const auto& profile = ai_studio::hw::HardwareManager::get_capabilities();
-    
     std::cout << "OS             : " << profile.os_name << '\n'; 
     std::cout << "Architecture   : " << profile.cpu_architecture << '\n';
     std::cout << "Logical Cores  : " << profile.logical_cores << '\n';
     std::cout << "System RAM     : " << std::fixed << std::setprecision(2) << profile.total_ram_gb << " GB\n";
+    std::cout << "---------------------------------------\n";
+
+    // 2. AI Inference Backend Selection & Initialization
+    auto optimal_provider = ai_studio::ai::InferenceEngine::select_optimal_provider();
+    std::cout << "Selected AI Provider: " << ai_studio::ai::InferenceEngine::provider_to_string(optimal_provider) << '\n';
+    
+    if (ai_studio::ai::InferenceEngine::initialize_backend()) {
+        std::cout << "ONNX Runtime Environment: Initialized Successfully.\n";
+    } else {
+        std::cout << "ONNX Runtime Environment: Initialization Warning (Fallback active).\n";
+    }
     std::cout << "=======================================\n";
 
     // Run the zero-allocation benchmark
