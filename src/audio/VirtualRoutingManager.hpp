@@ -8,10 +8,13 @@
 #pragma warning(push)
 #pragma warning(disable: 4324) // structure was padded due to alignment specifier
 #define AI_FORCE_INLINE __forceinline
+#define AI_RESTRICT __restrict
 #elif defined(__GNUC__) || defined(__clang__)
 #define AI_FORCE_INLINE inline __attribute__((always_inline))
+#define AI_RESTRICT __restrict__
 #else
 #define AI_FORCE_INLINE inline
+#define AI_RESTRICT
 #endif
 
 namespace ai_studio::audio {
@@ -34,7 +37,7 @@ public:
     void stop_virtual_routing() noexcept;
 
     // Ultra-fast zero-allocation force-inlined routing hook (0 function call overhead, SIMD ready)
-    [[nodiscard]] AI_FORCE_INLINE bool route_audio_frame(const float* __restrict__ samples, size_t count) noexcept {
+    [[nodiscard]] AI_FORCE_INLINE bool route_audio_frame(const float* AI_RESTRICT samples, size_t count) noexcept {
         if (!active_.load(std::memory_order_relaxed) || samples == nullptr || count == 0) [[unlikely]] {
             return false;
         }
@@ -58,3 +61,4 @@ private:
 #endif
 
 #undef AI_FORCE_INLINE
+#undef AI_RESTRICT
