@@ -19,37 +19,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # Install ONNX Runtime dependencies based on platform
-    - name: Install ONNX Runtime (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        brew update
-        brew install onnxruntime
-
-    - name: Install ONNX Runtime (Ubuntu)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y wget libonnxruntime-dev
-
-    - name: Install ONNX Runtime (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        vcpkg install onnxruntime:x64-windows
-
     - name: Configure CMake
-      run: |
-        if ("${{ runner.os }}" -eq "Windows") {
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLROOT/scripts/buildsystems/vcpkg.cmake"
-        } else {
-            cmake -B build -DCMAKE_BUILD_TYPE=Release
-        }
-      shell: pwsh
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
     - name: Build Engine
       run: cmake --build build --config Release
 
-    - name: Run Engine Binary
+    - name: Run Engine Binary (Windows)
       run: ./build/Release/AIStudioEngine
       if: runner.os == 'Windows'
 
