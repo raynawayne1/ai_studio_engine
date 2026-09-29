@@ -16,6 +16,7 @@
 #include "ai/VoiceInferenceEngine.hpp"
 #include "audio/AudioCaptureEngine.hpp"
 #include "audio/VirtualRoutingManager.hpp"
+#include "audio/ipc/EngineIPCServer.hpp" // Corrected path to match your folder
 
 consteval std::string_view getCompiler() noexcept {
 #if defined(_MSC_VER)
@@ -29,9 +30,10 @@ consteval std::string_view getCompiler() noexcept {
 #endif
 }
 
-// Ultra-fast Real-Time Audio Capture & AI Voice Conversion Pipeline with Virtual Routing Hot Path
+// Ultra-fast Real-Time Audio Capture & AI Voice Conversion Pipeline Simulation
 void run_live_audio_capture_simulation(ai_studio::ai::VoiceInferenceEngine& inference_engine) noexcept {
     std::cout << "\nStarting Live Audio Capture & AI Voice Conversion Pipeline Simulation...\n";
+    std::cout << "[Test Mode] Running 50,000,000 frames to allow time for UI IPC command testing.\n";
     
     // 1. Initialize Pool (1024 frames, 480 samples per 10ms chunk)
     ai_studio::core::AudioFramePool frame_pool(1024, 480);
@@ -56,7 +58,7 @@ void run_live_audio_capture_simulation(ai_studio::ai::VoiceInferenceEngine& infe
     // PRODUCER THREAD: Simulates high-frequency hardware microphone callbacks
     std::thread microphone_producer([&]() noexcept {
         std::vector<float> mock_mic_buffer(480, 0.123f);
-        for (uint64_t i = 0; i < 1000000; ++i) {
+        for (uint64_t i = 0; i < 50000000; ++i) { // 50 Million Frames for testing UI IPC!
             while (!capture_engine.push_captured_chunk(mock_mic_buffer.data(), mock_mic_buffer.size(), i * 10000)) {
                 std::this_thread::yield(); 
             }
@@ -66,7 +68,7 @@ void run_live_audio_capture_simulation(ai_studio::ai::VoiceInferenceEngine& infe
     // CONSUMER THREAD: Zero-Allocation AI Voice Conversion & Virtual Device Routing Hot Path
     int processed_count = 0;
     std::thread ai_consumer([&]() noexcept {
-        while (processed_count < 1000000) {
+        while (processed_count < 50000000) {
             ai_studio::core::AudioFrame* frame = frame_pool.acquire_ready_frame();
             
             if (frame != nullptr) [[likely]] {
@@ -98,7 +100,7 @@ void run_live_audio_capture_simulation(ai_studio::ai::VoiceInferenceEngine& infe
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 13\n";
+    std::cout << " AI Studio Engine - Milestone 14 (IPC)\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
@@ -124,7 +126,7 @@ int main() {
     }
     std::cout << "---------------------------------------\n";
 
-    // 3. Cloud Sync & Firebase Metadata Service (Pre-Call Offline Sync)
+    // 3. Cloud Sync & Firebase Metadata Service
     ai_studio::ai::CloudSyncManager cloud_sync("models");
     if (!cloud_sync.sync_model_metadata("sample_voice_model")) [[unlikely]] {
         std::cerr << "[Cloud Sync Warning] Operating in strict local offline mode.\n";
@@ -197,17 +199,42 @@ int main() {
     }
     std::cout << "---------------------------------------\n";
 
-    // 8. Real-Time Voice Conversion Inference Engine (Milestone 13 Integration)
+    // 8. Real-Time Voice Conversion Inference Engine
     ai_studio::ai::VoiceInferenceEngine inference_engine(voice_library);
     if (!inference_engine.initialize_session()) {
         std::cerr << "[Voice Inference Error] Failed to initialize voice conversion inference session.\n";
         return 1;
     }
-    std::cout << "======================================-\n";
+    std::cout << "---------------------------------------\n";
+
+    // 9. Local IPC UI Control Bridge (Milestone 14 Integration)
+    ai_studio::ipc::EngineIPCServer ipc_server(8765);
+    ipc_server.set_command_callback([](std::string_view command) -> std::string {
+        std::cout << "\n[UI Dashboard Request Received] -> " << command << "\n";
+        
+        // Fast command routing for the UI dashboard
+        if (command.find("START_CALL") != std::string_view::npos) {
+            return "{\"status\":\"ok\",\"action\":\"call_started\",\"latency_target_ms\":15}";
+        } else if (command.find("SET_PITCH") != std::string_view::npos) {
+            return "{\"status\":\"ok\",\"action\":\"pitch_updated\",\"value\":\"applied\"}";
+        } else if (command.find("STOP_CALL") != std::string_view::npos) {
+            return "{\"status\":\"ok\",\"action\":\"call_stopped\"}";
+        }
+        
+        return "{\"status\":\"error\",\"message\":\"Unknown UI Command\"}";
+    });
+
+    if (!ipc_server.start()) {
+        std::cerr << "[IPC Error] Failed to bind local control bridge. Exiting.\n";
+        return 1;
+    }
+    std::cout << "=======================================\n";
 
     // Run real-time live audio capture simulation with active AI inference and virtual routing
     run_live_audio_capture_simulation(inference_engine);
 
+    // Clean shutdown sequence
+    ipc_server.stop();
     inference_engine.shutdown();
 
     return 0;

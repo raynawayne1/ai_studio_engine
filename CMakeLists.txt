@@ -8,7 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Threads REQUIRED)
 
-# Gather all core source files across hardware, core, AI, and audio modules
+# Gather all core source files across hardware, core, AI, audio, and IPC modules
 set(SOURCES
     src/main.cpp
     src/hw/HardwareManager.cpp
@@ -21,12 +21,18 @@ set(SOURCES
     src/ai/VoiceInferenceEngine.cpp
     src/audio/AudioCaptureEngine.cpp
     src/audio/VirtualRoutingManager.cpp
+    src/audio/ipc/EngineIPCServer.cpp 
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
+
+# Windows-specific networking library required for the IPC Server
+if(WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
+endif()
 
 # Optional local ONNX Runtime path linking if available on the host machine
 find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
