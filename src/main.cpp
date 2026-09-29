@@ -10,6 +10,7 @@
 #include "ai/ModelManager.hpp"
 #include "ai/CloudSyncManager.hpp"
 #include "audio/AudioCaptureEngine.hpp"
+#include "audio/VirtualRoutingManager.hpp"
 
 consteval std::string_view getCompiler() noexcept {
 #if defined(_MSC_VER)
@@ -23,7 +24,7 @@ consteval std::string_view getCompiler() noexcept {
 #endif
 }
 
-// Ultra-fast Real-Time Audio Capture & Zero-Allocation Pipeline Simulation
+// Ultra-fast Real-Time Audio Capture & Zero-Allocation Pipeline Simulation with Virtual Routing
 void run_live_audio_capture_simulation() noexcept {
     std::cout << "\nStarting Live Audio Capture & Zero-Allocation Pipeline Simulation...\n";
     
@@ -34,6 +35,14 @@ void run_live_audio_capture_simulation() noexcept {
     ai_studio::audio::AudioCaptureEngine capture_engine(frame_pool);
     if (!capture_engine.start()) [[unlikely]] {
         std::cerr << "ERROR: Failed to start Audio Capture Engine!\n";
+        return;
+    }
+
+    // 3. Initialize Virtual Routing Manager (Virtual Microphone Driver Routing)
+    ai_studio::audio::VirtualRoutingManager virtual_router(frame_pool);
+    if (!virtual_router.start_virtual_routing()) [[unlikely]] {
+        std::cerr << "ERROR: Failed to start Virtual Routing Manager!\n";
+        capture_engine.stop();
         return;
     }
     
@@ -49,13 +58,16 @@ void run_live_audio_capture_simulation() noexcept {
         }
     });
 
-    // CONSUMER THREAD: Simulates AI Voice Conversion (ONNX Runtime consumer)
+    // CONSUMER THREAD: Simulates AI Voice Conversion & Virtual Device Routing
     int processed_count = 0;
     std::thread ai_consumer([&]() noexcept {
         while (processed_count < 1000000) {
             ai_studio::core::AudioFrame* frame = frame_pool.acquire_ready_frame();
             
             if (frame != nullptr) [[likely]] {
+                // Route processed frame samples straight to the virtual microphone driver sink with zero allocations
+                (void)virtual_router.route_audio_frame(frame->samples.data(), 480);
+                
                 processed_count++;
                 frame_pool.release_frame(frame);
             } else {
@@ -66,6 +78,7 @@ void run_live_audio_capture_simulation() noexcept {
 
     microphone_producer.join();
     ai_consumer.join();
+    virtual_router.stop_virtual_routing();
     capture_engine.stop();
 
     auto end_time = std::chrono::high_resolution_clock::now();
@@ -77,7 +90,7 @@ void run_live_audio_capture_simulation() noexcept {
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 8\n";
+    std::cout << " AI Studio Engine - Milestone 9\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
@@ -122,7 +135,7 @@ int main() {
     }
     std::cout << "=======================================\n";
 
-    // Run real-time live audio capture simulation
+    // Run real-time live audio capture simulation with virtual routing
     run_live_audio_capture_simulation();
 
     return 0;

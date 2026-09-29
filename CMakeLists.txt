@@ -16,6 +16,7 @@ set(SOURCES
     src/ai/ModelManager.cpp
     src/ai/CloudSyncManager.cpp
     src/audio/AudioCaptureEngine.cpp
+    src/audio/VirtualRoutingManager.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
