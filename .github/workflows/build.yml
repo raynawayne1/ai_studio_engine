@@ -27,9 +27,9 @@ jobs:
       run: cmake --build build --config Release --parallel
 
     - name: Run Engine Binary (Windows Smoke Test)
-      run: ./build/Release/AIStudioEngine.exe
+      run: ./build/Release/AIStudioEngine.exe --smoke-test
       if: runner.os == 'Windows'
 
     - name: Run Engine Binary (Unix Smoke Test)
-      run: ./build/AIStudioEngine
+      run: ./build/AIStudioEngine --smoke-test
       if: runner.os != 'Windows'
