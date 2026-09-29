@@ -1,6 +1,7 @@
 #include "EngineIPCServer.hpp"
 #include <iostream>
 #include <cstring>
+#include <string>
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -17,6 +18,25 @@
 #endif
 
 namespace ai_studio::ipc {
+
+// Pre-allocate static HTTP headers for zero-allocation response framing
+constexpr std::string_view HTTP_CORS_OPTIONS_RESPONSE = 
+    "HTTP/1.1 204 No Content\r\n"
+    "Access-Control-Allow-Origin: *\r\n"
+    "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n"
+    "Access-Control-Allow-Headers: Content-Type\r\n"
+    "Connection: close\r\n\r\n";
+
+constexpr std::string_view HTTP_RESPONSE_HEADER_START = 
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Access-Control-Allow-Origin: *\r\n"
+    "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n"
+    "Access-Control-Allow-Headers: Content-Type\r\n"
+    "Content-Length: ";
+
+constexpr std::string_view HTTP_RESPONSE_HEADER_END = 
+    "\r\nConnection: close\r\n\r\n";
 
 EngineIPCServer::EngineIPCServer(uint16_t port) noexcept
     : port_(port) {}
@@ -48,7 +68,7 @@ bool EngineIPCServer::start() noexcept {
         return false;
     }
 
-    // Reuse port instantly without TIME_WAIT OS lag
+    // High-speed port binding reuse to avoid OS TIME_WAIT lockouts
     int opt = 1;
     setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
 
@@ -82,7 +102,7 @@ bool EngineIPCServer::start() noexcept {
     running_.store(true, std::memory_order_release);
     server_thread_ = std::thread(&EngineIPCServer::server_loop, this);
 
-    std::cout << "[IPC Server] Local UI control bridge active on port " << port_ << " (Zero-Lag TCP Pipeline)...\n";
+    std::cout << "[IPC Server] Local UI control bridge active on port " << port_ << " (Ultra-Fast HTTP/CORS Enabled)...\n";
     return true;
 }
 
@@ -146,7 +166,7 @@ void EngineIPCServer::server_loop() noexcept {
         int flag = 1;
         setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
 
-        char buffer[2048] = {0};
+        char buffer[4096] = {0};
         
         // Native Windows (int) vs Native POSIX (ssize_t) routing
 #if defined(_WIN32)
@@ -157,18 +177,49 @@ void EngineIPCServer::server_loop() noexcept {
 
         if (bytes_read > 0) {
             std::string_view request(buffer, static_cast<size_t>(bytes_read));
-            std::string response = "{\"status\":\"ok\",\"message\":\"AI Studio Engine Ready\"}";
-            
-            if (command_callback_) {
-                response = command_callback_(request);
-            }
 
-            // Native Windows (int) vs Native POSIX (size_t) payload routing
+            // Ultra-fast Browser CORS Preflight validation
+            if (request.starts_with("OPTIONS")) {
 #if defined(_WIN32)
-            send(client_socket, response.c_str(), static_cast<int>(response.size()), 0);
+                send(client_socket, HTTP_CORS_OPTIONS_RESPONSE.data(), static_cast<int>(HTTP_CORS_OPTIONS_RESPONSE.size()), 0);
 #else
-            send(client_socket, response.c_str(), response.size(), 0);
+                send(client_socket, HTTP_CORS_OPTIONS_RESPONSE.data(), HTTP_CORS_OPTIONS_RESPONSE.size(), 0);
 #endif
+            } else {
+                // Zero-copy HTTP payload extraction
+                std::string_view body_json = request;
+                if (auto pos = request.find("\r\n\r\n"); pos != std::string_view::npos) {
+                    body_json = request.substr(pos + 4);
+                }
+
+                std::string json_response = "{\"status\":\"ok\",\"message\":\"AI Studio Engine Ready\"}";
+                if (command_callback_) {
+                    json_response = command_callback_(body_json);
+                }
+
+                // Minimum-allocation exact-size string reserve pipeline
+                std::string http_response;
+                std::string content_length_str = std::to_string(json_response.size());
+                
+                http_response.reserve(
+                    HTTP_RESPONSE_HEADER_START.size() + 
+                    content_length_str.size() + 
+                    HTTP_RESPONSE_HEADER_END.size() + 
+                    json_response.size()
+                );
+                
+                http_response.append(HTTP_RESPONSE_HEADER_START);
+                http_response.append(content_length_str);
+                http_response.append(HTTP_RESPONSE_HEADER_END);
+                http_response.append(json_response);
+
+                // Native Windows (int) vs Native POSIX (size_t) payload routing
+#if defined(_WIN32)
+                send(client_socket, http_response.c_str(), static_cast<int>(http_response.size()), 0);
+#else
+                send(client_socket, http_response.c_str(), http_response.size(), 0);
+#endif
+            }
         }
 
 #if defined(_WIN32)
