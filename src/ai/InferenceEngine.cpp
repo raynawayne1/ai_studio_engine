@@ -33,17 +33,6 @@ ExecutionProvider InferenceEngine::select_optimal_provider() noexcept {
     return ExecutionProvider::CPU;
 }
 
-constexpr std::string_view InferenceEngine::provider_to_string(ExecutionProvider provider) noexcept {
-    switch (provider) {
-        case ExecutionProvider::CPU:      return "CPU (Multi-Threaded)";
-        case ExecutionProvider::CoreML:   return "CoreML / Metal (Apple Silicon)";
-        case ExecutionProvider::CUDA:     return "NVIDIA CUDA";
-        case ExecutionProvider::DirectML: return "Microsoft DirectML";
-        case ExecutionProvider::TensorRT: return "NVIDIA TensorRT";
-    }
-    return "Unknown Provider";
-}
-
 bool InferenceEngine::initialize_backend() noexcept {
     #if AI_STUDIO_HAS_ORT
         try {
