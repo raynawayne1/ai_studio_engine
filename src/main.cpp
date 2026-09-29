@@ -4,11 +4,13 @@
 #include <thread>
 #include <chrono>
 #include <cstdint>
+#include <fstream>
 #include "hw/HardwareManager.hpp"
 #include "core/AudioFramePool.hpp"
 #include "ai/InferenceEngine.hpp"
 #include "ai/ModelManager.hpp"
 #include "ai/CloudSyncManager.hpp"
+#include "ai/VoiceUploadManager.hpp"
 #include "audio/AudioCaptureEngine.hpp"
 #include "audio/VirtualRoutingManager.hpp"
 
@@ -90,7 +92,7 @@ void run_live_audio_capture_simulation() noexcept {
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 9\n";
+    std::cout << " AI Studio Engine - Milestone 10\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
@@ -132,6 +134,30 @@ int main() {
         std::cout << "[Model Manager] Active voice profile verified: " << meta->model_id << '\n';
     } else {
         std::cout << "[Model Manager] Status: Ready for custom `.onnx` voice profiles in /models directory.\n";
+    }
+    std::cout << "---------------------------------------\n";
+
+    // 5. Voice Upload Ingestion & Source Preprocessing (Milestone 10)
+    ai_studio::ai::VoiceUploadManager voice_upload_manager("models");
+    
+    // Create a temporary sample voice source file for test ingestion verification
+    std::string sample_source_path = "models/sample_source.wav";
+    {
+        std::filesystem::create_directories("models");
+        std::ofstream dummy_file(sample_source_path, std::ios::binary);
+        if (dummy_file.is_open()) {
+            const char dummy_wav_header[] = "RIFF_SIMULATED_STUDIO_VOICE_STREAM";
+            dummy_file.write(dummy_wav_header, sizeof(dummy_wav_header));
+        }
+    }
+
+    if (voice_upload_manager.validate_source_media(sample_source_path)) {
+        if (voice_upload_manager.preprocess_voice_source("user_custom_profile", "Custom Studio Voice")) {
+            if (auto* profile_meta = voice_upload_manager.get_profile_metadata("user_custom_profile")) {
+                std::cout << "[Voice Upload Manager] Voice profile compiled & cached: " << profile_meta->display_name 
+                          << " | Sample Rate: " << profile_meta->sample_rate << " Hz\n";
+            }
+        }
     }
     std::cout << "=======================================\n";
 

@@ -15,6 +15,7 @@ set(SOURCES
     src/ai/InferenceEngine.cpp
     src/ai/ModelManager.cpp
     src/ai/CloudSyncManager.cpp
+    src/ai/VoiceUploadManager.cpp
     src/audio/AudioCaptureEngine.cpp
     src/audio/VirtualRoutingManager.cpp
 )
@@ -41,7 +42,14 @@ endif()
 
 # Maximum Compiler Optimizations for Extreme Speed & Zero Lag
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX /O2 /fp:fast)
+    target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX /O2 /fp:fast /Oi /Gy)
 else()
     target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Werror -pedantic -O3 -ffast-math)
+endif()
+
+# Enable Interprocedural Optimization (LTO) for cross-module function inlining and max performance
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+if(ipo_supported)
+    set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 endif()
