@@ -6,6 +6,11 @@
 #include <cstddef>
 #include <cstring>
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4324) // structure was padded due to alignment specifier
+#endif
+
 namespace ai_studio::audio {
 
 struct AudioConfig {
@@ -77,3 +82,7 @@ private:
 };
 
 } // namespace ai_studio::audio
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
