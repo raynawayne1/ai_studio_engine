@@ -48,7 +48,7 @@ bool EngineIPCServer::start() noexcept {
         return false;
     }
 
-    // Optimization 1: Reuse port instantly without TIME_WAIT OS lag
+    // Reuse port instantly without TIME_WAIT OS lag
     int opt = 1;
     setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
 
@@ -142,21 +142,33 @@ void EngineIPCServer::server_loop() noexcept {
         if (client_socket < 0) continue;
 #endif
 
-        // Optimization 2: Disable Nagle's Algorithm for instant, zero-lag UI command transmission
+        // Disable Nagle's Algorithm for instant, zero-lag UI command transmission
         int flag = 1;
         setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
 
         char buffer[2048] = {0};
+        
+        // Native Windows (int) vs Native POSIX (ssize_t) routing
+#if defined(_WIN32)
+        int bytes_read = recv(client_socket, buffer, static_cast<int>(sizeof(buffer) - 1), 0);
+#else
         ssize_t bytes_read = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
+#endif
+
         if (bytes_read > 0) {
-            std::string_view request(buffer, bytes_read);
+            std::string_view request(buffer, static_cast<size_t>(bytes_read));
             std::string response = "{\"status\":\"ok\",\"message\":\"AI Studio Engine Ready\"}";
             
             if (command_callback_) {
                 response = command_callback_(request);
             }
 
+            // Native Windows (int) vs Native POSIX (size_t) payload routing
+#if defined(_WIN32)
+            send(client_socket, response.c_str(), static_cast<int>(response.size()), 0);
+#else
             send(client_socket, response.c_str(), response.size(), 0);
+#endif
         }
 
 #if defined(_WIN32)
