@@ -11,6 +11,7 @@
 #include "ai/ModelManager.hpp"
 #include "ai/CloudSyncManager.hpp"
 #include "ai/VoiceUploadManager.hpp"
+#include "ai/VoiceLibraryManager.hpp"
 #include "audio/AudioCaptureEngine.hpp"
 #include "audio/VirtualRoutingManager.hpp"
 
@@ -92,7 +93,7 @@ void run_live_audio_capture_simulation() noexcept {
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 10\n";
+    std::cout << " AI Studio Engine - Milestone 11\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
@@ -137,10 +138,9 @@ int main() {
     }
     std::cout << "---------------------------------------\n";
 
-    // 5. Voice Upload Ingestion & Source Preprocessing (Milestone 10)
+    // 5. Voice Upload Ingestion & Source Preprocessing
     ai_studio::ai::VoiceUploadManager voice_upload_manager("models");
     
-    // Create a temporary sample voice source file for test ingestion verification
     std::string sample_source_path = "models/sample_source.wav";
     {
         std::filesystem::create_directories("models");
@@ -153,10 +153,29 @@ int main() {
 
     if (voice_upload_manager.validate_source_media(sample_source_path)) {
         if (voice_upload_manager.preprocess_voice_source("user_custom_profile", "Custom Studio Voice")) {
-            if (auto* profile_meta = voice_upload_manager.get_profile_metadata("user_custom_profile")) {
-                std::cout << "[Voice Upload Manager] Voice profile compiled & cached: " << profile_meta->display_name 
-                          << " | Sample Rate: " << profile_meta->sample_rate << " Hz\n";
-            }
+            std::cout << "[Voice Upload Manager] Source successfully preprocessed.\n";
+        }
+    }
+    std::cout << "---------------------------------------\n";
+
+    // 6. Voice Library & Multi-Profile Management (Milestone 11)
+    ai_studio::ai::VoiceLibraryManager voice_library("models");
+    if (!voice_library.scan_library()) [[unlikely]] {
+        std::cerr << "[Voice Library Error] Failed to scan local library.\n";
+    }
+
+    // Register active voice profile from upload manager into library (checking [[nodiscard]] return value)
+    if (auto* profile_meta = voice_upload_manager.get_profile_metadata("user_custom_profile")) {
+        if (!voice_library.register_profile(*profile_meta)) {
+            std::cerr << "[Voice Library Error] Failed to register profile.\n";
+        }
+    }
+
+    // Select active profile pre-call with zero allocation lookup
+    if (voice_library.select_active_profile("user_custom_profile")) {
+        if (auto* active_meta = voice_library.get_active_profile()) {
+            std::cout << "[Voice Library Manager] Pre-Call Active Voice Locked: " << active_meta->display_name 
+                      << " | Model Path: " << active_meta->processed_model_path.filename().string() << "\n";
         }
     }
     std::cout << "=======================================\n";

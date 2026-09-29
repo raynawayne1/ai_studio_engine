@@ -276,9 +276,8 @@ mac@MACs-MacBook-Pro ai_studio_engine %
 
 
 
-
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+cmake --build build --config Release --clean-first
 ./build/AIStudioEngine
 
 
