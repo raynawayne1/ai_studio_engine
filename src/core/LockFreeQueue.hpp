@@ -4,6 +4,11 @@
 #include <vector>
 #include <cstddef>
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4324) // structure was padded due to alignment specifier
+#endif
+
 namespace ai_studio::core {
 
 /**
@@ -59,3 +64,7 @@ private:
 };
 
 } // namespace ai_studio::core
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

@@ -3,6 +3,7 @@
 #include <string_view>
 #include <thread>
 #include <chrono>
+#include <cstdint>
 #include "hw/HardwareManager.hpp"
 #include "core/AudioFramePool.hpp"
 
@@ -30,7 +31,7 @@ void run_zero_allocation_simulation() {
 
     // PRODUCER: Microphone Ingest Thread
     std::thread producer([&]() {
-        for (int i = 0; i < 1000000; ++i) {
+        for (uint64_t i = 0; i < 1000000; ++i) {
             ai_studio::core::AudioFrame* frame = nullptr;
             
             // Wait for a free frame
@@ -38,7 +39,7 @@ void run_zero_allocation_simulation() {
                 std::this_thread::yield(); 
             }
 
-            // Simulate writing audio data
+            // Simulate writing audio data (using uint64_t prevents signed loop overflow UB)
             frame->timestamp_us = i * 10000; 
             frame->is_valid = true;
 
