@@ -41,18 +41,17 @@ public:
 
     /**
      * ULTRA-FAST REAL-TIME AUDIO INGESTION HOOK
-     * Called directly inside native OS audio callbacks (CoreAudio/WASAPI/ALSA).
-     * Copies raw audio data into our pre-allocated memory pool with ZERO heap allocations,
-     * using compiler-optimized memory operations.
+     * Enforced with C++20 [[likely]] and [[unlikely]] branch prediction hints
+     * to eliminate CPU pipeline stalls and maximize throughput.
      */
     [[nodiscard]] bool push_captured_chunk(const float* src_samples, size_t num_samples, uint64_t timestamp_us) noexcept {
-        if (!is_running_.load(std::memory_order_relaxed) || !src_samples) {
+        if (!is_running_.load(std::memory_order_relaxed) || !src_samples) [[unlikely]] {
             return false;
         }
 
         // 1. Acquire an empty frame from the pool with zero allocations
         core::AudioFrame* frame = frame_pool_.acquire_free_frame();
-        if (!frame) {
+        if (!frame) [[unlikely]] {
             return false; // Audio underrun guard (pool exhausted)
         }
 
@@ -63,15 +62,18 @@ public:
         frame->timestamp_us = timestamp_us;
         frame->is_valid = true;
 
-        // 3. Push immediately to the ready queue for AI processing
-        return frame_pool_.push_ready_frame(frame);
+        // 3. Push immediately to the ready queue for AI processing (Highly frequent path)
+        if (frame_pool_.push_ready_frame(frame)) [[likely]] {
+            return true;
+        }
+        
+        return false;
     }
 
 private:
     core::AudioFramePool& frame_pool_;
     AudioConfig config_;
     alignas(64) std::atomic<bool> is_running_{false};
-    void* native_device_handle_ = nullptr;
 };
 
 } // namespace ai_studio::audio
