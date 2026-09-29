@@ -5,7 +5,13 @@
 namespace ai_studio::ai {
 
 VoiceInferenceEngine::VoiceInferenceEngine(VoiceLibraryManager& library_manager) noexcept
-    : library_manager_(library_manager) {}
+    : library_manager_(library_manager) {
+    // Pre-reserve container capacities to guarantee zero runtime heap allocations
+    input_shape_.reserve(4);
+    output_shape_.reserve(4);
+    input_node_names_.reserve(2);
+    output_node_names_.reserve(2);
+}
 
 VoiceInferenceEngine::~VoiceInferenceEngine() noexcept {
     shutdown();
@@ -53,7 +59,7 @@ bool VoiceInferenceEngine::initialize_session() noexcept {
         std::cout << "[Voice Inference] High-speed zero-lag neural DSP register pipeline active (Standalone Mode).\n";
 #endif
 
-        // Pre-allocate static tensor shapes and node name bindings
+        // Assign pre-reserved tensor shapes and node name bindings
         input_shape_ = {1, 1, 480};
         output_shape_ = {1, 1, 480};
         input_node_names_ = {"input"};
