@@ -14,6 +14,7 @@ set(SOURCES
     src/hw/HardwareManager.cpp
     src/ai/InferenceEngine.cpp
     src/ai/ModelManager.cpp
+    src/ai/CloudSyncManager.cpp
     src/audio/AudioCaptureEngine.cpp
 )
 

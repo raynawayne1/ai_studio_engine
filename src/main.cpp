@@ -8,6 +8,7 @@
 #include "core/AudioFramePool.hpp"
 #include "ai/InferenceEngine.hpp"
 #include "ai/ModelManager.hpp"
+#include "ai/CloudSyncManager.hpp"
 #include "audio/AudioCaptureEngine.hpp"
 
 consteval std::string_view getCompiler() noexcept {
@@ -39,15 +40,11 @@ void run_live_audio_capture_simulation() noexcept {
     auto start_time = std::chrono::high_resolution_clock::now();
 
     // PRODUCER THREAD: Simulates high-frequency hardware microphone callbacks
-    // using our optimized push_captured_chunk() zero-allocation method.
     std::thread microphone_producer([&]() noexcept {
-        // Pre-allocate a dummy microphone input buffer (10ms of audio)
         std::vector<float> mock_mic_buffer(480, 0.123f);
-
         for (uint64_t i = 0; i < 1000000; ++i) {
-            // Feed raw audio directly through the capture engine hook with zero allocations
             while (!capture_engine.push_captured_chunk(mock_mic_buffer.data(), mock_mic_buffer.size(), i * 10000)) {
-                std::this_thread::yield(); // Backpressure relief if AI consumer is lagging
+                std::this_thread::yield(); 
             }
         }
     });
@@ -59,10 +56,7 @@ void run_live_audio_capture_simulation() noexcept {
             ai_studio::core::AudioFrame* frame = frame_pool.acquire_ready_frame();
             
             if (frame != nullptr) [[likely]] {
-                // Simulate running live AI inference / voice conversion on frame->samples here
                 processed_count++;
-
-                // Instantly recycle memory back to the audio capture pool with zero overhead
                 frame_pool.release_frame(frame);
             } else {
                 std::this_thread::yield();
@@ -83,7 +77,7 @@ void run_live_audio_capture_simulation() noexcept {
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 7\n";
+    std::cout << " AI Studio Engine - Milestone 8\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
@@ -109,13 +103,18 @@ int main() {
     }
     std::cout << "---------------------------------------\n";
 
-    // 3. Local Voice Model Manager & Offline Caching (Zero-Allocation Lookups)
+    // 3. Cloud Sync & Firebase Metadata Service (Pre-Call Offline Sync)
+    ai_studio::ai::CloudSyncManager cloud_sync("models");
+    if (!cloud_sync.sync_model_metadata("sample_voice_model")) [[unlikely]] {
+        std::cerr << "[Cloud Sync Warning] Operating in strict local offline mode.\n";
+    }
+
+    // 4. Local Voice Model Manager & Offline Caching
     ai_studio::ai::ModelManager model_manager("models");
     if (!model_manager.scan_local_models()) [[unlikely]] {
         std::cerr << "[Model Manager Error] Failed to scan local models directory.\n";
     }
     
-    // Zero-allocation transparent string_view query check
     if (auto* meta = model_manager.get_model_metadata("sample_voice_model")) [[likely]] {
         std::cout << "[Model Manager] Active voice profile verified: " << meta->model_id << '\n';
     } else {
