@@ -17,6 +17,7 @@ set(SOURCES
     src/ai/CloudSyncManager.cpp
     src/ai/VoiceUploadManager.cpp
     src/ai/VoiceLibraryManager.cpp
+    src/ai/VoicePreviewManager.cpp
     src/audio/AudioCaptureEngine.cpp
     src/audio/VirtualRoutingManager.cpp
 )

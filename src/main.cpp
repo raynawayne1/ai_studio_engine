@@ -12,6 +12,7 @@
 #include "ai/CloudSyncManager.hpp"
 #include "ai/VoiceUploadManager.hpp"
 #include "ai/VoiceLibraryManager.hpp"
+#include "ai/VoicePreviewManager.hpp"
 #include "audio/AudioCaptureEngine.hpp"
 #include "audio/VirtualRoutingManager.hpp"
 
@@ -93,7 +94,7 @@ void run_live_audio_capture_simulation() noexcept {
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 11\n";
+    std::cout << " AI Studio Engine - Milestone 12\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
@@ -146,7 +147,7 @@ int main() {
         std::filesystem::create_directories("models");
         std::ofstream dummy_file(sample_source_path, std::ios::binary);
         if (dummy_file.is_open()) {
-            const char dummy_wav_header[] = "RIFF_SIMULATED_STUDIO_VOICE_STREAM";
+            const char dummy_wav_header[] = "AI_STUDIO_SIMULATED_STUDIO_VOICE_STREAM";
             dummy_file.write(dummy_wav_header, sizeof(dummy_wav_header));
         }
     }
@@ -158,25 +159,55 @@ int main() {
     }
     std::cout << "---------------------------------------\n";
 
-    // 6. Voice Library & Multi-Profile Management (Milestone 11)
+    // 6. Voice Library & Multi-Profile Management
     ai_studio::ai::VoiceLibraryManager voice_library("models");
     if (!voice_library.scan_library()) [[unlikely]] {
         std::cerr << "[Voice Library Error] Failed to scan local library.\n";
     }
 
-    // Register active voice profile from upload manager into library (checking [[nodiscard]] return value)
     if (auto* profile_meta = voice_upload_manager.get_profile_metadata("user_custom_profile")) {
         if (!voice_library.register_profile(*profile_meta)) {
             std::cerr << "[Voice Library Error] Failed to register profile.\n";
         }
     }
 
-    // Select active profile pre-call with zero allocation lookup
     if (voice_library.select_active_profile("user_custom_profile")) {
         if (auto* active_meta = voice_library.get_active_profile()) {
             std::cout << "[Voice Library Manager] Pre-Call Active Voice Locked: " << active_meta->display_name 
                       << " | Model Path: " << active_meta->processed_model_path.filename().string() << "\n";
         }
+    }
+    std::cout << "---------------------------------------\n";
+
+    // 7. Pre-Call Voice Configuration, Verification & Live Preview (Milestone 12)
+    ai_studio::ai::VoicePreviewManager voice_preview(voice_library);
+    
+    if (voice_preview.load_and_verify_active_model()) {
+        // Configure voice parameters pre-call
+        voice_preview.configure_settings({
+            .pitch_shift = 2,          // +2 semitones pitch adjustment
+            .index_rate = 0.85f,       // 85% feature retrieval weight
+            .protect_rate = 0.33f,     // Consonant protection
+            .enabled = true
+        });
+
+        // Run local microphone preview test session
+        if (voice_preview.start_preview()) {
+            std::vector<float> test_input(480, 0.456f);
+            std::vector<float> test_output(480, 0.0f);
+            
+            // Test vectorised chunk conversion pass
+            if (voice_preview.process_preview_chunk(test_input.data(), test_output.data(), test_input.size())) {
+                std::cout << "[Voice Preview] Live audio sample chunk preview successfully converted and verified.\n";
+            }
+            voice_preview.stop_preview();
+        }
+
+        if (voice_preview.is_ready_for_call()) {
+            std::cout << "[Voice Preview Manager] Status: Voice model fully locked, verified, and ready for call launch.\n";
+        }
+    } else {
+        std::cerr << "[Voice Preview Error] Pre-call verification failed.\n";
     }
     std::cout << "=======================================\n";
 
