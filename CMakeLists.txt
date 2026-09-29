@@ -18,6 +18,7 @@ set(SOURCES
     src/ai/VoiceUploadManager.cpp
     src/ai/VoiceLibraryManager.cpp
     src/ai/VoicePreviewManager.cpp
+    src/ai/VoiceInferenceEngine.cpp
     src/audio/AudioCaptureEngine.cpp
     src/audio/VirtualRoutingManager.cpp
 )
@@ -42,11 +43,24 @@ if(ONNXRUNTIME_LIBRARY)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${ONNXRUNTIME_LIBRARY})
 endif()
 
-# Maximum Compiler Optimizations for Extreme Speed & Zero Lag
+# Maximum Hardware-Native Compiler Optimizations for Extreme Speed & Zero Lag
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX /O2 /fp:fast /Oi /Gy)
+    target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX /O2 /fp:fast /Oi /Gy /DNDEBUG)
 else()
-    target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Werror -pedantic -O3 -ffast-math)
+    target_compile_options(${PROJECT_NAME} PRIVATE 
+        -Wall 
+        -Wextra 
+        -Werror 
+        -pedantic 
+        -O3 
+        -ffast-math 
+        -march=native 
+        -mtune=native 
+        -funroll-loops 
+        -ftree-vectorize 
+        -fomit-frame-pointer 
+        -DNDEBUG
+    )
 endif()
 
 # Enable Interprocedural Optimization (LTO) for cross-module function inlining and max performance

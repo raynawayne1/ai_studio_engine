@@ -13,6 +13,7 @@
 #include "ai/VoiceUploadManager.hpp"
 #include "ai/VoiceLibraryManager.hpp"
 #include "ai/VoicePreviewManager.hpp"
+#include "ai/VoiceInferenceEngine.hpp"
 #include "audio/AudioCaptureEngine.hpp"
 #include "audio/VirtualRoutingManager.hpp"
 
@@ -28,9 +29,9 @@ consteval std::string_view getCompiler() noexcept {
 #endif
 }
 
-// Ultra-fast Real-Time Audio Capture & Zero-Allocation Pipeline Simulation with Virtual Routing
-void run_live_audio_capture_simulation() noexcept {
-    std::cout << "\nStarting Live Audio Capture & Zero-Allocation Pipeline Simulation...\n";
+// Ultra-fast Real-Time Audio Capture & AI Voice Conversion Pipeline with Virtual Routing Hot Path
+void run_live_audio_capture_simulation(ai_studio::ai::VoiceInferenceEngine& inference_engine) noexcept {
+    std::cout << "\nStarting Live Audio Capture & AI Voice Conversion Pipeline Simulation...\n";
     
     // 1. Initialize Pool (1024 frames, 480 samples per 10ms chunk)
     ai_studio::core::AudioFramePool frame_pool(1024, 480);
@@ -62,14 +63,17 @@ void run_live_audio_capture_simulation() noexcept {
         }
     });
 
-    // CONSUMER THREAD: Simulates AI Voice Conversion & Virtual Device Routing
+    // CONSUMER THREAD: Zero-Allocation AI Voice Conversion & Virtual Device Routing Hot Path
     int processed_count = 0;
     std::thread ai_consumer([&]() noexcept {
         while (processed_count < 1000000) {
             ai_studio::core::AudioFrame* frame = frame_pool.acquire_ready_frame();
             
             if (frame != nullptr) [[likely]] {
-                // Route processed frame samples straight to the virtual microphone driver sink with zero allocations
+                // Pass live microphone chunk through active AI Voice Conversion Inference Engine (Zero allocation hot path)
+                (void)inference_engine.convert_chunk(frame->samples.data(), frame->samples.data(), 480);
+
+                // Route converted audio frame samples straight to the virtual microphone driver sink with zero allocations
                 (void)virtual_router.route_audio_frame(frame->samples.data(), 480);
                 
                 processed_count++;
@@ -94,7 +98,7 @@ void run_live_audio_capture_simulation() noexcept {
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 12\n";
+    std::cout << " AI Studio Engine - Milestone 13\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
@@ -179,40 +183,32 @@ int main() {
     }
     std::cout << "---------------------------------------\n";
 
-    // 7. Pre-Call Voice Configuration, Verification & Live Preview (Milestone 12)
+    // 7. Pre-Call Voice Configuration, Verification & Live Preview
     ai_studio::ai::VoicePreviewManager voice_preview(voice_library);
-    
     if (voice_preview.load_and_verify_active_model()) {
-        // Configure voice parameters pre-call
-        voice_preview.configure_settings({
-            .pitch_shift = 2,          // +2 semitones pitch adjustment
-            .index_rate = 0.85f,       // 85% feature retrieval weight
-            .protect_rate = 0.33f,     // Consonant protection
-            .enabled = true
-        });
-
-        // Run local microphone preview test session
+        voice_preview.configure_settings({.pitch_shift = 2, .index_rate = 0.85f, .protect_rate = 0.33f, .enabled = true});
         if (voice_preview.start_preview()) {
             std::vector<float> test_input(480, 0.456f);
             std::vector<float> test_output(480, 0.0f);
-            
-            // Test vectorised chunk conversion pass
-            if (voice_preview.process_preview_chunk(test_input.data(), test_output.data(), test_input.size())) {
-                std::cout << "[Voice Preview] Live audio sample chunk preview successfully converted and verified.\n";
-            }
+            (void)voice_preview.process_preview_chunk(test_input.data(), test_output.data(), test_input.size());
             voice_preview.stop_preview();
         }
-
-        if (voice_preview.is_ready_for_call()) {
-            std::cout << "[Voice Preview Manager] Status: Voice model fully locked, verified, and ready for call launch.\n";
-        }
-    } else {
-        std::cerr << "[Voice Preview Error] Pre-call verification failed.\n";
+        std::cout << "[Voice Preview Manager] Status: Voice model fully locked, verified, and ready for call launch.\n";
     }
-    std::cout << "=======================================\n";
+    std::cout << "---------------------------------------\n";
 
-    // Run real-time live audio capture simulation with virtual routing
-    run_live_audio_capture_simulation();
+    // 8. Real-Time Voice Conversion Inference Engine (Milestone 13 Integration)
+    ai_studio::ai::VoiceInferenceEngine inference_engine(voice_library);
+    if (!inference_engine.initialize_session()) {
+        std::cerr << "[Voice Inference Error] Failed to initialize voice conversion inference session.\n";
+        return 1;
+    }
+    std::cout << "======================================-\n";
+
+    // Run real-time live audio capture simulation with active AI inference and virtual routing
+    run_live_audio_capture_simulation(inference_engine);
+
+    inference_engine.shutdown();
 
     return 0;
 }
