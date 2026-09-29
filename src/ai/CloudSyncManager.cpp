@@ -30,11 +30,15 @@ bool CloudSyncManager::sync_model_metadata(std::string_view model_id) noexcept {
 
 bool CloudSyncManager::verify_local_asset(std::string_view model_id) const noexcept {
     try {
-        auto target_path = local_cache_dir_ / (std::string(model_id) + ".onnx");
-        return std::filesystem::exists(target_path) && std::filesystem::file_size(target_path) > 0;
-    } catch (...) {
-        return false;
-    }
+        std::filesystem::path target_path = local_cache_dir_;
+        target_path /= std::string(model_id);
+        target_path += ".onnx";
+        
+        if (std::filesystem::exists(target_path) && std::filesystem::file_size(target_path) > 0) [[likely]] {
+            return true;
+        }
+    } catch (...) {}
+    return false;
 }
 
 } // namespace ai_studio::ai
