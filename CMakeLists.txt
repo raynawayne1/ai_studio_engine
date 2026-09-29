@@ -6,8 +6,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+# Gather source files
+set(SOURCES
+    src/main.cpp
+    src/hw/HardwareManager.cpp
+)
 
+add_executable(${PROJECT_NAME} ${SOURCES})
+
+# Ensure the compiler can find our header files starting from the src/ folder
+target_include_directories(${PROJECT_NAME} PRIVATE src)
+
+# Cross-platform compiler warning flags (Treat warnings as errors)
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX)
 else()

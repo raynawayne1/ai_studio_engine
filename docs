@@ -1,3 +1,155 @@
+MACOS
+brew update
+brew install cmake ninja git node opencv onnxruntime
+
+
+LINUX
+sudo apt update
+sudo apt install -y build-essential cmake ninja-build git nodejs
+
+
+WINDOWS
+winget install -e --id Kitware.CMake
+winget install -e --id Ninja-build.Ninja
+winget install -e --id Git.Git
+winget install -e --id OpenJS.NodeJS
+
+
+
+
+
+INSTALL 
+I CURRENTLY USE MACOS, SO I RUN THIS
+
+brew update
+brew install cmake ninja git node opencv onnxruntime
+
+LATER I THEN
+mac@MACs-MacBook-Pro ai_studio_engine % brew list --versions opencv onnxruntime
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+Error: The current working directory must exist to run brew.
+
+
+
+mkdir -p ai_studio_engine/src
+mkdir -p ai_studio_engine/cmake
+mkdir -p ai_studio_engine/ui
+mkdir -p ai_studio_engine/.github/workflows
+
+cat << 'EOF' > ai_studio_engine/CMakeLists.txt
+cmake_minimum_required(VERSION 3.24)
+project(AIStudioEngine VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+add_executable(${PROJECT_NAME} src/main.cpp)
+
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX)
+else()
+    target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Werror -pedantic)
+endif()
+EOF
+
+cat << 'EOF' > ai_studio_engine/src/main.cpp
+#include <iostream>
+#include <string_view>
+
+consteval std::string_view getPlatform() {
+#if defined(_WIN32)
+    return "Windows";
+#elif defined(__APPLE__)
+    return "macOS (Apple Silicon)";
+#elif defined(__linux__)
+    return "Linux";
+#else
+    return "Unknown OS";
+#endif
+}
+
+consteval std::string_view getCompiler() {
+#if defined(_MSC_VER)
+    return "MSVC";
+#elif defined(__clang__)
+    return "Clang";
+#elif defined(__GNUC__)
+    return "GCC";
+#else
+    return "Unknown Compiler";
+#endif
+}
+
+int main() {
+    std::cout << "=======================================\n";
+    std::cout << " AI Studio Engine - Milestone 1\n";
+    std::cout << "=======================================\n";
+    std::cout << "Target OS    : " << getPlatform() << '\n';
+    std::cout << "Compiler     : " << getCompiler() << '\n';
+    std::cout << "C++ Standard : " << __cplusplus << '\n';
+    std::cout << "=======================================\n";
+    std::cout << "Engine initialized successfully.\n";
+    return 0;
+}
+EOF
+
+cat << 'EOF' > ai_studio_engine/.env.example
+FIREBASE_API_KEY=your_firebase_api_key_placeholder
+FIREBASE_PROJECT_ID=your_firebase_project_id_placeholder
+FIREBASE_APP_ID=your_firebase_app_id_placeholder
+EOF
+
+cat << 'EOF' > ai_studio_engine/.gitignore
+build/
+bin/
+out/
+compile_commands.json
+.env
+*.pem
+*.key
+.DS_Store
+Thumbs.db
+EOF
+
+cat << 'EOF' > ai_studio_engine/.github/workflows/build.yml
+name: Cross-Platform Engine Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+    - name: Build Engine
+      run: cmake --build build --config Release
+EOF
+
+cd ai_studio_engine
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/AIStudioEngine
+
+
+
+
+
+I GOT THIS
+
 mac@MACs-MacBook-Pro Desktop % >....                                                                                                                                                                                                     
     std::cout << "=======================================\n";
     std::cout << "Engine initialized successfully.\n";
@@ -80,5 +232,51 @@ mac@MACs-MacBook-Pro ai_studio_engine %
 
 
 
+git init
+git add .
+git commit -m "Milestone 1: Initial C++20 Engine Core and CI setup"
 
 
+
+git branch -M main
+git remote set-url origin git@github-ray:YOUR_USERNAME/ai_studio_engine.git
+git push -u origin 
+
+git remote set-url origin git@github-ray:raynawayne1/ai_studio_engine.git
+git push -u origin main
+
+
+
+
+mac@MACs-MacBook-Pro ai_studio_engine % git remote set-url origin git@github-ray:raynawayne1/ai_studio_engine.git
+git push -u origin main
+Enumerating objects: 11, done.
+Counting objects: 100% (11/11), done.
+Delta compression using up to 4 threads
+Compressing objects: 100% (8/8), done.
+Writing objects: 100% (11/11), 2.16 KiB | 552.00 KiB/s, done.
+Total 11 (delta 2), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (2/2), done.
+To github-ray:raynawayne1/ai_studio_engine.git
+ * [new branch]      main -> main
+branch 'main' set up to track 'origin/main'.
+mac@MACs-MacBook-Pro ai_studio_engine % 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/AIStudioEngine
