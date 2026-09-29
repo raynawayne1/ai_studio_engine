@@ -26,7 +26,7 @@ jobs:
       run: cmake --build build --config Release
 
     - name: Run Engine Binary (Windows)
-      run: ./build/Release/AIStudioEngine
+      run: ./build/Release/AIStudioEngine.exe
       if: runner.os == 'Windows'
 
     - name: Run Engine Binary (Unix)
