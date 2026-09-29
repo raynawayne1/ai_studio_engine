@@ -7,9 +7,10 @@
 #include "hw/HardwareManager.hpp"
 #include "core/AudioFramePool.hpp"
 #include "ai/InferenceEngine.hpp"
+#include "ai/ModelManager.hpp"
 #include "audio/AudioCaptureEngine.hpp"
 
-consteval std::string_view getCompiler() {
+consteval std::string_view getCompiler() noexcept {
 #if defined(_MSC_VER)
     return "MSVC";
 #elif defined(__clang__)
@@ -22,7 +23,7 @@ consteval std::string_view getCompiler() {
 }
 
 // Ultra-fast Real-Time Audio Capture & Zero-Allocation Pipeline Simulation
-void run_live_audio_capture_simulation() {
+void run_live_audio_capture_simulation() noexcept {
     std::cout << "\nStarting Live Audio Capture & Zero-Allocation Pipeline Simulation...\n";
     
     // 1. Initialize Pool (1024 frames, 480 samples per 10ms chunk)
@@ -30,7 +31,7 @@ void run_live_audio_capture_simulation() {
 
     // 2. Initialize Capture Engine
     ai_studio::audio::AudioCaptureEngine capture_engine(frame_pool);
-    if (!capture_engine.start()) {
+    if (!capture_engine.start()) [[unlikely]] {
         std::cerr << "ERROR: Failed to start Audio Capture Engine!\n";
         return;
     }
@@ -39,7 +40,7 @@ void run_live_audio_capture_simulation() {
 
     // PRODUCER THREAD: Simulates high-frequency hardware microphone callbacks
     // using our optimized push_captured_chunk() zero-allocation method.
-    std::thread microphone_producer([&]() {
+    std::thread microphone_producer([&]() noexcept {
         // Pre-allocate a dummy microphone input buffer (10ms of audio)
         std::vector<float> mock_mic_buffer(480, 0.123f);
 
@@ -53,11 +54,11 @@ void run_live_audio_capture_simulation() {
 
     // CONSUMER THREAD: Simulates AI Voice Conversion (ONNX Runtime consumer)
     int processed_count = 0;
-    std::thread ai_consumer([&]() {
+    std::thread ai_consumer([&]() noexcept {
         while (processed_count < 1000000) {
             ai_studio::core::AudioFrame* frame = frame_pool.acquire_ready_frame();
             
-            if (frame != nullptr) {
+            if (frame != nullptr) [[likely]] {
                 // Simulate running live AI inference / voice conversion on frame->samples here
                 processed_count++;
 
@@ -82,7 +83,7 @@ void run_live_audio_capture_simulation() {
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 6\n";
+    std::cout << " AI Studio Engine - Milestone 7\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
@@ -105,6 +106,20 @@ int main() {
         std::cout << "ONNX Runtime Environment: Initialized Successfully.\n";
     } else {
         std::cout << "ONNX Runtime Environment: Initialization Warning (Fallback active).\n";
+    }
+    std::cout << "---------------------------------------\n";
+
+    // 3. Local Voice Model Manager & Offline Caching (Zero-Allocation Lookups)
+    ai_studio::ai::ModelManager model_manager("models");
+    if (!model_manager.scan_local_models()) [[unlikely]] {
+        std::cerr << "[Model Manager Error] Failed to scan local models directory.\n";
+    }
+    
+    // Zero-allocation transparent string_view query check
+    if (auto* meta = model_manager.get_model_metadata("sample_voice_model")) [[likely]] {
+        std::cout << "[Model Manager] Active voice profile verified: " << meta->model_id << '\n';
+    } else {
+        std::cout << "[Model Manager] Status: Ready for custom `.onnx` voice profiles in /models directory.\n";
     }
     std::cout << "=======================================\n";
 

@@ -8,11 +8,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Threads REQUIRED)
 
-# Gather all core source files across hardware, AI, and audio capture modules
+# Gather all core source files across hardware, core, AI, and audio modules
 set(SOURCES
     src/main.cpp
     src/hw/HardwareManager.cpp
     src/ai/InferenceEngine.cpp
+    src/ai/ModelManager.cpp
     src/audio/AudioCaptureEngine.cpp
 )
 
