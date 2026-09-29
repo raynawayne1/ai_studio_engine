@@ -1,0 +1,84 @@
+mac@MACs-MacBook-Pro Desktop % >....                                                                                                                                                                                                     
+    std::cout << "=======================================\n";
+    std::cout << "Engine initialized successfully.\n";
+    return 0;
+}
+EOF
+
+cat << 'EOF' > ai_studio_engine/.env.example
+FIREBASE_API_KEY=your_firebase_api_key_placeholder
+FIREBASE_PROJECT_ID=your_firebase_project_id_placeholder
+FIREBASE_APP_ID=your_firebase_app_id_placeholder
+EOF
+
+cat << 'EOF' > ai_studio_engine/.gitignore
+build/
+bin/
+out/
+compile_commands.json
+.env
+*.pem
+*.key
+.DS_Store
+Thumbs.db
+EOF
+
+cat << 'EOF' > ai_studio_engine/.github/workflows/build.yml
+name: Cross-Platform Engine Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+    - name: Build Engine
+      run: cmake --build build --config Release
+EOF
+
+cd ai_studio_engine
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/AIStudioEngine
+-- The CXX compiler identification is AppleClang 14.0.0.14000029
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.8s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/mac/Desktop/ai_studio_engine/build
+[ 50%] Building CXX object CMakeFiles/AIStudioEngine.dir/src/main.cpp.o
+[100%] Linking CXX executable AIStudioEngine
+[100%] Built target AIStudioEngine
+=======================================
+ AI Studio Engine - Milestone 1
+=======================================
+Target OS    : macOS (Apple Silicon)
+Compiler     : Clang
+C++ Standard : 202002
+=======================================
+Engine initialized successfully.
+mac@MACs-MacBook-Pro ai_studio_engine % 
+
+
+
+
+
+
+
+

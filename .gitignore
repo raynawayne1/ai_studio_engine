@@ -1,0 +1,9 @@
+build/
+bin/
+out/
+compile_commands.json
+.env
+*.pem
+*.key
+.DS_Store
+Thumbs.db
