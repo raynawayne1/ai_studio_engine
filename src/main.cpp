@@ -4,9 +4,8 @@
 #include <thread>
 #include <chrono>
 #include "hw/HardwareManager.hpp"
-#include "core/LockFreeQueue.hpp"
+#include "core/AudioFramePool.hpp"
 
-// Keep the compiler check for diagnostics
 consteval std::string_view getCompiler() {
 #if defined(_MSC_VER)
     return "MSVC";
@@ -19,32 +18,50 @@ consteval std::string_view getCompiler() {
 #endif
 }
 
-// Ultra-fast Real-Time concurrency test
-void run_realtime_simulation() {
-    std::cout << "\nStarting Lock-Free Audio Pipeline Simulation...\n";
+// Ultra-fast Bi-Directional Zero-Allocation Benchmark
+void run_zero_allocation_simulation() {
+    std::cout << "\nStarting Zero-Allocation Audio Pool Simulation...\n";
     
-    // Queue sized for 1024 frames of data
-    ai_studio::core::LockFreeQueue<int> audio_queue(1024);
+    // Create a pool of 1024 frames, each holding 480 samples (10ms of 48kHz audio)
+    // This allocates all memory up front.
+    ai_studio::core::AudioFramePool frame_pool(1024, 480);
     
     auto start_time = std::chrono::high_resolution_clock::now();
 
-    // PRODUCER THREAD: Simulates Microphone ingest
+    // PRODUCER: Microphone Ingest Thread
     std::thread producer([&]() {
         for (int i = 0; i < 1000000; ++i) {
-            while (!audio_queue.push(i)) {
-                // If queue is full, yield to prevent locking
+            ai_studio::core::AudioFrame* frame = nullptr;
+            
+            // Wait for a free frame
+            while ((frame = frame_pool.acquire_free_frame()) == nullptr) {
                 std::this_thread::yield(); 
+            }
+
+            // Simulate writing audio data
+            frame->timestamp_us = i * 10000; 
+            frame->is_valid = true;
+
+            // Send to AI
+            while (!frame_pool.push_ready_frame(frame)) {
+                std::this_thread::yield();
             }
         }
     });
 
-    // CONSUMER THREAD: Simulates AI Processing / Virtual Mic output
-    int received_count = 0;
+    // CONSUMER: AI Voice Conversion Thread
+    int processed_count = 0;
     std::thread consumer([&]() {
-        int item;
-        while (received_count < 1000000) {
-            if (audio_queue.pop(item)) {
-                received_count++;
+        while (processed_count < 1000000) {
+            ai_studio::core::AudioFrame* frame = frame_pool.acquire_ready_frame();
+            
+            if (frame != nullptr) {
+                // Simulate running ONNX Inference on frame->samples here...
+                
+                processed_count++;
+
+                // Instantly recycle the memory back to the Microphone
+                frame_pool.release_frame(frame);
             } else {
                 std::this_thread::yield();
             }
@@ -57,13 +74,13 @@ void run_realtime_simulation() {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 
-    std::cout << "SUCCESS: Processed " << received_count << " frames in " << duration_ms << " ms.\n";
-    std::cout << "Zero locks, zero mutexes, zero memory allocations during execution.\n";
+    std::cout << "SUCCESS: Processed " << processed_count << " pooled audio frames in " << duration_ms << " ms.\n";
+    std::cout << "Total runtime allocations: ZERO. Memory fragmentation: ZERO.\n";
 }
 
 int main() {
     std::cout << "=======================================\n";
-    std::cout << " AI Studio Engine - Milestone 3\n";
+    std::cout << " AI Studio Engine - Milestone 4\n";
     std::cout << "=======================================\n";
     
     std::cout << "Compiler       : " << getCompiler() << '\n';
@@ -78,8 +95,8 @@ int main() {
     std::cout << "System RAM     : " << std::fixed << std::setprecision(2) << profile.total_ram_gb << " GB\n";
     std::cout << "=======================================\n";
 
-    // Run the high-performance benchmark
-    run_realtime_simulation();
+    // Run the zero-allocation benchmark
+    run_zero_allocation_simulation();
 
     return 0;
 }
