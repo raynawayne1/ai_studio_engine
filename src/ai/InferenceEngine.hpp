@@ -1,37 +1,45 @@
 #pragma once
 
+#include <string>
 #include <string_view>
+#include <memory>
+#include <unordered_map>
+#include <onnxruntime_cxx_api.h> // REAL ONNX RUNTIME C++ API
 
 namespace ai_studio::ai {
 
 enum class ExecutionProvider {
     CPU,
     CoreML,
+    Metal,
     CUDA,
-    DirectML,
-    TensorRT
+    TensorRT,
+    DirectML
 };
 
 class InferenceEngine {
 public:
-    // Selects the optimal execution provider based on hardware capabilities (noexcept, zero-copy)
-    [[nodiscard]] static ExecutionProvider select_optimal_provider() noexcept;
-    
-    // Returns a string_view representation with ZERO heap allocations.
-    // Defined inline here to satisfy constexpr visibility rules.
-    [[nodiscard]] static constexpr std::string_view provider_to_string(ExecutionProvider provider) noexcept {
-        switch (provider) {
-            case ExecutionProvider::CPU:      return "CPU (Multi-Threaded)";
-            case ExecutionProvider::CoreML:   return "CoreML / Metal (Apple Silicon)";
-            case ExecutionProvider::CUDA:     return "NVIDIA CUDA";
-            case ExecutionProvider::DirectML: return "Microsoft DirectML";
-            case ExecutionProvider::TensorRT: return "NVIDIA TensorRT";
-        }
-        return "Unknown Provider";
-    }
+    InferenceEngine() = delete;
+    ~InferenceEngine() = delete;
 
-    // Verifies if the ONNX Runtime environment is fully initialized
-    [[nodiscard]] static bool initialize_backend() noexcept;
+    static ExecutionProvider select_optimal_provider() noexcept;
+    static std::string_view provider_to_string(ExecutionProvider provider) noexcept;
+    
+    // Initializes the global ONNX runtime environment (zero-lag telemetry config)
+    static bool initialize_backend() noexcept;
+    
+    // Frees hardware resources cleanly
+    static void shutdown() noexcept;
+
+    // Creates an extremely optimized inference session for FaceSwap / RVC
+    static std::unique_ptr<Ort::Session> create_session(const std::string& model_path);
+
+    // Access the global environment required by Ort::Session
+    static Ort::Env& get_env();
+
+private:
+    static std::unique_ptr<Ort::Env> s_env;
+    static ExecutionProvider s_active_provider;
 };
 
 } // namespace ai_studio::ai

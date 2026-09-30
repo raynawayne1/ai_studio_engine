@@ -7,3 +7,5 @@ compile_commands.json
 *.key
 .DS_Store
 Thumbs.db
+ui/node_modules/
+node_modules/

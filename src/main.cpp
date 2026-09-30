@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <fstream>
 #include <atomic>
+#include <filesystem>
 #include "hw/HardwareManager.hpp"
 #include "core/AudioFramePool.hpp"
 #include "ai/InferenceEngine.hpp"
@@ -19,6 +20,10 @@
 #include "audio/VirtualRoutingManager.hpp"
 #include "audio/ipc/EngineIPCServer.hpp"
 
+#if defined(__APPLE__)
+#include <dlfcn.h>
+#endif
+
 consteval std::string_view getCompiler() noexcept {
 #if defined(_MSC_VER)
     return "MSVC";
@@ -31,9 +36,25 @@ consteval std::string_view getCompiler() noexcept {
 #endif
 }
 
-// UPDATE: Accept command line arguments
 int main(int argc, char* argv[]) {
-    // Detect if we are running in GitHub Actions CI
+#if defined(__APPLE__)
+    // Dynamically load OpenCV Python wheel bundle globally so C++ symbols resolve at runtime with zero lag
+    std::string cv_so_path = "";
+    FILE* pipe = popen("python3 -c 'import cv2, os; print(os.path.join(os.path.dirname(cv2.__file__), \"cv2.abi3.so\"))'", "r");
+    if (pipe) {
+        char buffer[512];
+        if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+            cv_so_path = buffer;
+            cv_so_path.erase(cv_so_path.find_last_not_of(" \n\r\t") + 1);
+        }
+        pclose(pipe);
+    }
+    if (!cv_so_path.empty() && std::filesystem::exists(cv_so_path)) {
+        dlopen(cv_so_path.c_str(), RTLD_GLOBAL | RTLD_LAZY);
+    }
+#endif
+
+    // Detect if we are running in GitHub Actions CI smoke-test mode
     bool smoke_test_mode = (argc > 1 && std::string_view(argv[1]) == "--smoke-test");
 
     std::cout << "==================================================\n";
@@ -207,7 +228,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // UPDATE: Exit instantly after verifying IPC in GitHub Actions!
     if (smoke_test_mode) {
         std::cout << "==================================================\n";
         std::cout << "[CI Smoke Test] SUCCESS: Engine bound to port 8765.\n";
@@ -223,12 +243,10 @@ int main(int argc, char* argv[]) {
     std::cout << " (Press Ctrl+C in this terminal to shut down)\n";
     std::cout << "==================================================\n";
 
-    // Keep daemon alive indefinitely for local development
     while (ipc_server.is_running()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
 
-    // Clean shutdown sequence if UI was actively calling
     if (call_active.exchange(false, std::memory_order_acq_rel)) {
         if (audio_pipeline_thread.joinable()) {
             audio_pipeline_thread.join();

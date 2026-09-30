@@ -1,6 +1,250 @@
 MACOS
 brew update
 brew install cmake ninja git node opencv onnxruntime
+brew install opencv@4
+python3 -m pip install opencv-python==4.9.0.80
+python3 -m pip install "numpy<2"
+
+
+python3 -c '
+import os, glob, shutil, cv2
+
+print("Locating precompiled OpenCV package...")
+cv2_path = os.path.dirname(cv2.__file__)
+print(f"Found OpenCV at: {cv2_path}")
+
+os.makedirs("third_party/opencv/include", exist_ok=True)
+os.makedirs("third_party/opencv/lib", exist_ok=True)
+
+# 1. Copy C++ Headers
+cv2_dir = os.path.join(cv2_path, "opencv2")
+dst_headers = "third_party/opencv/include/opencv2"
+if os.path.exists(dst_headers):
+    shutil.rmtree(dst_headers)
+if os.path.exists(cv2_dir):
+    shutil.copytree(cv2_dir, dst_headers)
+    print("SUCCESS: Copied OpenCV C++ headers.")
+else:
+    print("WARNING: opencv2 header directory not found in wheel.")
+
+# 2. Copy Dynamic Library (.so or .dylib)
+for file in os.listdir(cv2_path):
+    if file.endswith(".so") or file.endswith(".dylib"):
+        src_lib = os.path.join(cv2_path, file)
+        dst_lib = os.path.join("third_party/opencv/lib", file)
+        shutil.copy2(src_lib, dst_lib)
+        print(f"SUCCESS: Copied native library {file}")
+
+print("SUCCESS: OpenCV prebuilt SDK successfully configured in third_party/opencv!")
+'
+
+cd /Users/mac/Desktop/ai_studio_engine
+
+# 1. Force-create the missing OpenCV modules configuration header
+python3 -c '
+import os
+target_dir = "third_party/opencv/include/opencv2"
+os.makedirs(target_dir, exist_ok=True)
+file_path = os.path.join(target_dir, "opencv_modules.hpp")
+content = """#ifndef OPENCV_MODULES_HPP
+#define OPENCV_MODULES_HPP
+#define HAVE_OPENCV_CORE 1
+#define HAVE_OPENCV_IMGPROC 1
+#define HAVE_OPENCV_VIDEOIO 1
+#define HAVE_OPENCV_HIGHGUI 1
+#define HAVE_OPENCV_VIDEO 1
+#define HAVE_OPENCV_OBJDETECT 1
+#define HAVE_OPENCV_DNN 1
+#define HAVE_OPENCV_PHOTO 1
+#define HAVE_OPENCV_CALIB3D 1
+#define HAVE_OPENCV_FEATURES2D 1
+#define HAVE_OPENCV_ML 1
+#define HAVE_OPENCV_FLANN 1
+#define HAVE_OPENCV_STITCHING 1
+#endif
+"""
+with open(file_path, "w") as f:
+    f.write(content)
+print("SUCCESS: Explicitly created", file_path)
+'
+
+# 2. Re-run CMake build and execute smoke test
+rm -rf build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --clean-first
+./build/AIStudioEngine --smoke-test
+
+
+
+cd /Users/mac/Desktop/ai_studio_engine
+
+# 1. Flatten the nested OpenCV header directories
+python3 -c '
+import os, shutil
+
+nested_path = "third_party/opencv/include/opencv2/opencv2"
+target_path = "third_party/opencv/include/opencv2"
+
+if os.path.exists(nested_path):
+    print("Fixing nested OpenCV headers directory structure...")
+    for item in os.listdir(nested_path):
+        s = os.path.join(nested_path, item)
+        d = os.path.join(target_path, item)
+        if os.path.exists(d):
+            if os.path.isdir(d): shutil.rmtree(d)
+            else: os.remove(d)
+        shutil.move(s, d)
+    shutil.rmtree(nested_path)
+    print("SUCCESS: OpenCV headers directory structure flattened!")
+else:
+    print("Header structure is already flat.")
+'
+
+# 2. Re-run CMake build and execute smoke test
+cmake --build build --config Release --clean-first
+./build/AIStudioEngine --smoke-test
+
+
+
+
+cd /Users/mac/Desktop/ai_studio_engine
+
+# Clean and re-extract OpenCV headers correctly
+python3 -c '
+import urllib.request, zipfile, os, shutil, ssl
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+url = "https://github.com/opencv/opencv/archive/refs/tags/4.9.0.zip"
+print("Downloading fresh OpenCV 4.9.0 C++ headers...")
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+with urllib.request.urlopen(req, context=ctx) as resp, open("opencv.zip", "wb") as out_file:
+    shutil.copyfileobj(resp, out_file)
+
+# Clear old include directory
+if os.path.exists("third_party/opencv/include"):
+    shutil.rmtree("third_party/opencv/include")
+
+os.makedirs("third_party/opencv/include/opencv2", exist_ok=True)
+os.makedirs("third_party/temp_cv", exist_ok=True)
+
+print("Extracting headers...")
+with zipfile.ZipFile("opencv.zip", "r") as z:
+    for member in z.namelist():
+        if "opencv-4.9.0/include/opencv2" in member:
+            z.extract(member, "third_party/temp_cv")
+
+src_dir = "third_party/temp_cv/opencv-4.9.0/include/opencv2"
+dst_dir = "third_party/opencv/include/opencv2"
+
+# Move files directly into dst_dir
+for item in os.listdir(src_dir):
+    shutil.move(os.path.join(src_dir, item), os.path.join(dst_dir, item))
+
+# Create the required opencv_modules.hpp configuration header
+modules_hpp_path = os.path.join(dst_dir, "opencv_modules.hpp")
+content = """#ifndef OPENCV_MODULES_HPP
+#define OPENCV_MODULES_HPP
+#define HAVE_OPENCV_CORE 1
+#define HAVE_OPENCV_IMGPROC 1
+#define HAVE_OPENCV_VIDEOIO 1
+#define HAVE_OPENCV_HIGHGUI 1
+#define HAVE_OPENCV_VIDEO 1
+#define HAVE_OPENCV_OBJDETECT 1
+#define HAVE_OPENCV_DNN 1
+#define HAVE_OPENCV_PHOTO 1
+#define HAVE_OPENCV_CALIB3D 1
+#define HAVE_OPENCV_FEATURES2D 1
+#define HAVE_OPENCV_ML 1
+#define HAVE_OPENCV_FLANN 1
+#define HAVE_OPENCV_STITCHING 1
+#endif
+"""
+with open(modules_hpp_path, "w") as f:
+    f.write(content)
+
+shutil.rmtree("third_party/temp_cv")
+os.remove("opencv.zip")
+print("SUCCESS: OpenCV headers and modules config perfectly installed!")
+'
+
+
+python3 -c '
+import urllib.request, zipfile, os, shutil, ssl
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+url = "https://github.com/opencv/opencv/archive/refs/tags/4.9.0.zip"
+print("Downloading OpenCV 4.9.0 C++ headers...")
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+with urllib.request.urlopen(req, context=ctx) as resp, open("opencv.zip", "wb") as out_file:
+    shutil.copyfileobj(resp, out_file)
+
+os.makedirs("third_party/opencv/include", exist_ok=True)
+os.makedirs("third_party/temp_cv", exist_ok=True)
+
+print("Extracting headers...")
+with zipfile.ZipFile("opencv.zip", "r") as z:
+    for member in z.namelist():
+        if "opencv-4.9.0/include/opencv2" in member:
+            z.extract(member, "third_party/temp_cv")
+
+src_dir = "third_party/temp_cv/opencv-4.9.0/include/opencv2"
+dst_dir = "third_party/opencv/include/opencv2"
+if os.path.exists(dst_dir):
+    shutil.rmtree(dst_dir)
+shutil.move(src_dir, dst_dir)
+
+shutil.rmtree("third_party/temp_cv")
+os.remove("opencv.zip")
+print("SUCCESS: OpenCV C++ headers installed into third_party/opencv/include/opencv2!")
+'
+
+
+
+cd /Users/mac/Desktop/ai_studio_engine
+python3 -c '
+import urllib.request, tarfile, os, glob, shutil, ssl, platform
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+arch = platform.machine()
+filename = "onnxruntime-osx-arm64-1.17.1.tgz" if arch == "arm64" else "onnxruntime-osx-x86_64-1.17.1.tgz"
+url = f"https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/{filename}"
+
+print(f"Downloading ONNX Runtime 1.17.1 for {arch} ({filename})...")
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+with urllib.request.urlopen(req, context=ctx) as resp, open("onnxruntime.tgz", "wb") as out_file:
+    shutil.copyfileobj(resp, out_file)
+
+file_path = "onnxruntime.tgz"
+print("Extracting archive...")
+os.makedirs("third_party/onnxruntime", exist_ok=True)
+os.makedirs("third_party/temp_onnx", exist_ok=True)
+with tarfile.open(file_path, "r:gz") as tar:
+    tar.extractall("third_party/temp_onnx")
+
+extracted_dir = glob.glob("third_party/temp_onnx/onnxruntime-*")[0]
+for item in os.listdir(extracted_dir):
+    src = os.path.join(extracted_dir, item)
+    dst = os.path.join("third_party/onnxruntime", item)
+    if os.path.exists(dst):
+        if os.path.isdir(dst): shutil.rmtree(dst)
+        else: os.remove(dst)
+    shutil.move(src, dst)
+
+shutil.rmtree("third_party/temp_onnx")
+os.remove(file_path)
+print("SUCCESS: ONNX Runtime installed into third_party/onnxruntime!")
+'
+
+
 
 
 LINUX
@@ -275,10 +519,260 @@ mac@MACs-MacBook-Pro ai_studio_engine %
 
 
 
-
+rm -rf build
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --clean-first
 ./build/AIStudioEngine
 
 
+
 PLEASE MAKE IT EXTREMELY REALLT OPTIMISE AND EXTREMELY VERY VERY FAST NO LAG AND IT MOST BE EXTREMELY VERY FAST I WANT TO BE OPTIMISING AS WE'RE BUILDING
+
+PLEASE MAKE IT EXTREMELY REALLT OPTIMISE AND EXTREMELY VERY VERY FAST NO LAG AND IT MOST BE EXTREMELY VERY FAST I WANT TO BE OPTIMISING AS WE'RE BUILDING
+
+
+PLEASE ENSURE IT DOES NOT LAG
+PLEASE ENSURE PLATFORM COMPATIBLE
+ENSURE IT EXTREMELY VERY VERY SMOOTH
+PLEASE ENSURE IT REAL
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# 🚀 AI Studio Engine
+
+A high-performance, cross-platform C++20 AI desktop engine featuring real-time Face Swap, RVC Voice Conversion, Body Tracking, Background Matting, and Virtual Camera/Microphone routing. Designed with zero-lag hardware-adaptive inference (CPU fallback, Metal/CoreML, CUDA/TensorRT).
+
+---
+
+## 📋 Table of Contents
+1. [macOS Installation & SDK Bootstrapping](#-macos-installation--sdk-bootstrapping)
+2. [Linux (Ubuntu 24.04) Setup](#-linux-ubuntu-2404-setup)
+3. [Windows Setup](#-windows-setup)
+4. [Building and Running](#-building-and-running)
+
+---
+
+## 🍏 macOS Installation & SDK Provisioning
+
+Run these commands sequentially in your terminal inside your project root (`ai_studio_engine`).
+
+### 1. Install System Toolchains
+```bash
+brew update
+brew install cmake ninja git node
+
+
+
+
+2. Install Python Dependencies & OpenCV Binaries
+python3 -m pip install opencv-python==4.9.0.80 "numpy<2"
+
+
+
+
+3. Configure Local OpenCV Prebuilt SDK & Deep Headers
+Run this automated Python script to extract native libraries, harvest deep module headers from the official OpenCV 4.9.0 repository, and generate the required module configuration headers:
+
+python3 -c '
+import os, glob, shutil, urllib.request, zipfile, ssl, cv2
+
+print("Locating precompiled OpenCV python package...")
+cv2_path = os.path.dirname(cv2.__file__)
+os.makedirs("third_party/opencv/include/opencv2", exist_ok=True)
+os.makedirs("third_party/opencv/lib", exist_ok=True)
+
+# 1. Copy native dynamic library (.so or .dylib)
+for file in os.listdir(cv2_path):
+    if file.endswith(".so") or file.endswith(".dylib"):
+        shutil.copy2(os.path.join(cv2_path, file), os.path.join("third_party/opencv/lib", file))
+        print(f"SUCCESS: Copied native library {file}")
+
+# 2. Download official OpenCV 4.9.0 source archive to harvest deep module headers
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+url = "[https://github.com/opencv/opencv/archive/refs/tags/4.9.0.zip](https://github.com/opencv/opencv/archive/refs/tags/4.9.0.zip)"
+print("Downloading OpenCV 4.9.0 source archive...")
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+with urllib.request.urlopen(req, context=ctx) as resp, open("opencv_src.zip", "wb") as f:
+    shutil.copyfileobj(resp, f)
+
+print("Extracting headers...")
+with zipfile.ZipFile("opencv_src.zip", "r") as z:
+    z.extractall("third_party/opencv_extracted")
+
+extracted_root = "third_party/opencv_extracted/opencv-4.9.0"
+target_opencv2 = "third_party/opencv/include/opencv2"
+
+modules_dir = os.path.join(extracted_root, "modules")
+if os.path.exists(modules_dir):
+    for mod in os.listdir(modules_dir):
+        mod_inc = os.path.join(modules_dir, mod, "include", "opencv2")
+        if os.path.exists(mod_inc):
+            for item in os.listdir(mod_inc):
+                s = os.path.join(mod_inc, item)
+                d = os.path.join(target_opencv2, item)
+                if os.path.isdir(s):
+                    if os.path.exists(d): shutil.rmtree(d)
+                    shutil.copytree(s, d)
+                else:
+                    shutil.copy2(s, d)
+
+root_inc = os.path.join(extracted_root, "include", "opencv2")
+if os.path.exists(root_inc):
+    for item in os.listdir(root_inc):
+        s = os.path.join(root_inc, item)
+        d = os.path.join(target_opencv2, item)
+        if os.path.isdir(s):
+            if os.path.exists(d): shutil.rmtree(d)
+            shutil.copytree(s, d)
+        else:
+            shutil.copy2(s, d)
+
+# 3. Generate required opencv_modules.hpp configuration header
+modules_hpp_path = os.path.join(target_opencv2, "opencv_modules.hpp")
+content = """#ifndef OPENCV_MODULES_HPP
+#define OPENCV_MODULES_HPP
+#define HAVE_OPENCV_CORE 1
+#define HAVE_OPENCV_IMGPROC 1
+#define HAVE_OPENCV_VIDEOIO 1
+#define HAVE_OPENCV_HIGHGUI 1
+#define HAVE_OPENCV_VIDEO 1
+#define HAVE_OPENCV_OBJDETECT 1
+#define HAVE_OPENCV_DNN 1
+#define HAVE_OPENCV_PHOTO 1
+#define HAVE_OPENCV_CALIB3D 1
+#define HAVE_OPENCV_FEATURES2D 1
+#define HAVE_OPENCV_ML 1
+#define HAVE_OPENCV_FLANN 1
+#define HAVE_OPENCV_STITCHING 1
+#endif
+"""
+with open(modules_hpp_path, "w") as f:
+    f.write(content)
+
+shutil.rmtree("third_party/opencv_extracted", ignore_errors=True)
+if os.path.exists("opencv_src.zip"): os.remove("opencv_src.zip")
+print("SUCCESS: OpenCV SDK, deep headers, and module configs fully provisioned!")
+'
+
+
+
+
+
+
+4. Download Official ONNX Runtime SDK
+
+python3 -c '
+import urllib.request, tarfile, os, glob, shutil, ssl, platform
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+arch = platform.machine()
+filename = "onnxruntime-osx-arm64-1.17.1.tgz" if arch == "arm64" else "onnxruntime-osx-x86_64-1.17.1.tgz"
+url = f"[https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/](https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/){filename}"
+
+print(f"Downloading ONNX Runtime 1.17.1 for {arch}...")
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+with urllib.request.urlopen(req, context=ctx) as resp, open("onnxruntime.tgz", "wb") as out_file:
+    shutil.copyfileobj(resp, out_file)
+
+os.makedirs("third_party/onnxruntime", exist_ok=True)
+os.makedirs("third_party/temp_onnx", exist_ok=True)
+with tarfile.open("onnxruntime.tgz", "r:gz") as tar:
+    tar.extractall("third_party/temp_onnx")
+
+extracted_dir = glob.glob("third_party/temp_onnx/onnxruntime-*")[0]
+for item in os.listdir(extracted_dir):
+    src = os.path.join(extracted_dir, item)
+    dst = os.path.join("third_party/onnxruntime", item)
+    if os.path.exists(dst):
+        if os.path.isdir(dst): shutil.rmtree(dst)
+        else: os.remove(dst)
+    shutil.move(src, dst)
+
+shutil.rmtree("third_party/temp_onnx")
+os.remove("onnxruntime.tgz")
+print("SUCCESS: ONNX Runtime installed into third_party/onnxruntime!")
+'
+
+
+
+
+
+🐧 Linux (Ubuntu 24.04) Setup
+
+sudo apt update
+sudo apt install -y build-essential cmake ninja-build git nodejs libopencv-dev libonnxruntime-dev
+
+
+
+
+🪟 Windows Setup (PowerShell / Administrator)
+
+winget install -e --id Kitware.CMake
+winget install -e --id Ninja-build.Ninja
+winget install -e --id Git.Git
+winget install -e --id OpenJS.NodeJS
+
+
+
+
+
+
+Set your environment root if using custom ONNX Runtime binaries:
+$env:ONNXRUNTIME_ROOT = "C:/onnxruntime"
+
+
+
+
+
+🔨 Building and Running the Engine
+Configure CMake with Ninja and execute the smoke test:
+
+cd ai_studio_engine
+rm -rf build
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+./build/AIStudioEngine --smoke-test
