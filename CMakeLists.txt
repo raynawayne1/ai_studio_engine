@@ -73,6 +73,15 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
+    
+    # Automatically copy onnxruntime.dll right next to AIStudioEngine.exe for zero-friction Windows execution
+    if(EXISTS "${ONNXRUNTIME_LOCAL_DIR}/bin/onnxruntime.dll")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ONNXRUNTIME_LOCAL_DIR}/bin/onnxruntime.dll"
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        )
+    endif()
 endif()
 
 if(APPLE)
@@ -100,7 +109,6 @@ else()
         -fomit-frame-pointer 
         -DNDEBUG
     )
-    # Apply Clang-specific flags only when using Clang to prevent GCC notes under -Werror
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(${PROJECT_NAME} PRIVATE 
             -Wno-c11-extensions 
@@ -109,7 +117,6 @@ else()
     endif()
 endif()
 
-# Enable Interprocedural Optimization (LTO) for cross-module function inlining and max performance
 include(CheckIPOSupported)
 check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
 if(ipo_supported)
