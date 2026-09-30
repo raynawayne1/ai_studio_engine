@@ -29,14 +29,15 @@ else()
     set(ONNXRUNTIME_LIBRARY "onnxruntime")
 endif()
 
-# OpenCV Local vs System Paths (macOS uses runtime dynamic symbol lookup for Python wheel bundle)
+# OpenCV Local vs System Paths
 set(OPENCV_LOCAL_DIR "${THIRD_PARTY_DIR}/opencv")
 if(EXISTS "${OPENCV_LOCAL_DIR}/include")
     set(OPENCV_INCLUDE_DIRS "${OPENCV_LOCAL_DIR}/include")
     if(APPLE)
-        set(OPENCV_LIBS "") # Resolved via runtime dynamic loader
+        set(OPENCV_LIBS "") # Resolved via runtime dynamic loader for Python wheel bundle
     elseif(WIN32)
-        set(OPENCV_LIBS "")
+        # Automatically discover all prebuilt OpenCV MSVC import libraries (.lib)
+        file(GLOB OPENCV_LIBS "${OPENCV_LOCAL_DIR}/lib/*.lib")
     else()
         set(OPENCV_LIBS "")
     endif()
