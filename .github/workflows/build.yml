@@ -37,6 +37,11 @@ jobs:
         sudo apt update
         sudo apt install -y build-essential cmake ninja-build libopencv-dev
         python3 -m pip install opencv-python==4.9.0.80 "numpy<2"
+        
+        # Link system headers into local directory for CMake
+        mkdir -p third_party/opencv/include
+        ln -s /usr/include/opencv4/opencv2 third_party/opencv/include/opencv2
+        
         # Download ONNX Runtime Linux x64
         curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/onnxruntime-linux-x64-1.17.1.tgz -o onnxruntime.tgz
         mkdir -p third_party/onnxruntime third_party/temp_ort
@@ -52,71 +57,63 @@ jobs:
       run: |
         brew install ninja
         python3 -m pip install opencv-python==4.9.0.80 "numpy<2"
-        # Set up OpenCV headers & ONNX Runtime using our robust python provisioning script
-        python3 -c '
-        import os, urllib.request, zipfile, tarfile, glob, shutil, ssl, platform, cv2
+        
+        cat << 'EOF' > prov_cv.py
+        import os, urllib.request, zipfile, shutil, ssl, cv2
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-
-        # 1. OpenCV headers
-        os.makedirs("third_party/opencv/include/opencv2", exist_ok=True)
-        os.makedirs("third_party/opencv/lib", exist_ok=True)
-        cv2_path = os.path.dirname(cv2.__file__)
-        for file in os.listdir(cv2_path):
-            if file.endswith(".dylib") or file.endswith(".so"):
-                shutil.copy2(os.path.join(cv2_path, file), os.path.join("third_party/opencv/lib", file))
-
-        url_cv = "https://github.com/opencv/opencv/archive/refs/tags/4.9.0.zip"
-        req = urllib.request.Request(url_cv, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, context=ctx) as resp, open("opencv.zip", "wb") as f:
+        t_inc = "third_party/opencv/include/opencv2"
+        t_lib = "third_party/opencv/lib"
+        os.makedirs(t_inc, exist_ok=True)
+        os.makedirs(t_lib, exist_ok=True)
+        
+        req = urllib.request.Request("https://github.com/opencv/opencv/archive/refs/tags/4.9.0.zip", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, context=ctx) as resp, open("cv.zip", "wb") as f:
             shutil.copyfileobj(resp, f)
-        os.makedirs("third_party/temp_cv", exist_ok=True)
-        with zipfile.ZipFile("opencv.zip", "r") as z:
-            z.extractall("third_party/temp_cv")
+        with zipfile.ZipFile("cv.zip", "r") as z:
+            z.extractall("tmp_cv")
+            
+        shutil.copytree("tmp_cv/opencv-4.9.0/include/opencv2", t_inc, dirs_exist_ok=True)
+        for mod in os.listdir("tmp_cv/opencv-4.9.0/modules"):
+            m_inc = os.path.join("tmp_cv/opencv-4.9.0/modules", mod, "include", "opencv2")
+            if os.path.exists(m_inc):
+                shutil.copytree(m_inc, t_inc, dirs_exist_ok=True)
+                
+        shutil.rmtree("tmp_cv")
+        os.remove("cv.zip")
         
-        extracted_root = "third_party/temp_cv/opencv-4.9.0"
-        target_opencv2 = "third_party/opencv/include/opencv2"
-        for mod in os.listdir(os.path.join(extracted_root, "modules")):
-            mod_inc = os.path.join(extracted_root, "modules", mod, "include", "opencv2")
-            if os.path.exists(mod_inc):
-                for item in os.listdir(mod_inc):
-                    s = os.path.join(mod_inc, item)
-                    d = os.path.join(target_opencv2, item)
-                    if os.path.isdir(s):
-                        if os.path.exists(d): shutil.rmtree(d)
-                        shutil.copytree(s, d)
-                    else:
-                        shutil.copy2(s, d)
+        cv2_p = os.path.dirname(cv2.__file__)
+        for f in os.listdir(cv2_p):
+            if f.endswith((".so", ".dylib", ".pyd", ".dll")):
+                shutil.copy2(os.path.join(cv2_p, f), t_lib)
+        print("macOS OpenCV provisioned")
+        EOF
         
-        with open(os.path.join(target_opencv2, "opencv_modules.hpp"), "w") as f:
-            f.write("#ifndef OPENCV_MODULES_HPP\n#define OPENCV_MODULES_HPP\n#define HAVE_OPENCV_CORE 1\n#define HAVE_OPENCV_IMGPROC 1\n#define HAVE_OPENCV_VIDEOIO 1\n#define HAVE_OPENCV_HIGHGUI 1\n#define HAVE_OPENCV_VIDEO 1\n#define HAVE_OPENCV_OBJDETECT 1\n#define HAVE_OPENCV_DNN 1\n#define HAVE_OPENCV_PHOTO 1\n#define HAVE_OPENCV_CALIB3D 1\n#define HAVE_OPENCV_FEATURES2D 1\n#define HAVE_OPENCV_ML 1\n#define HAVE_OPENCV_FLANN 1\n#define HAVE_OPENCV_STITCHING 1\n#endif\n")
-        shutil.rmtree("third_party/temp_cv", ignore_errors=True)
-        os.remove("opencv.zip")
-
-        # 2. ONNX Runtime macOS
+        python3 prov_cv.py
+        
+        cat << 'EOF' > prov_ort.py
+        import os, urllib.request, tarfile, glob, shutil, ssl, platform
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
         arch = platform.machine()
         ort_file = "onnxruntime-osx-arm64-1.17.1.tgz" if arch == "arm64" else "onnxruntime-osx-x86_64-1.17.1.tgz"
-        url_ort = f"https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/{ort_file}"
-        req_ort = urllib.request.Request(url_ort, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req_ort, context=ctx) as resp, open("onnxruntime.tgz", "wb") as f:
+        req = urllib.request.Request(f"https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/{ort_file}", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, context=ctx) as resp, open("ort.tgz", "wb") as f:
             shutil.copyfileobj(resp, f)
         os.makedirs("third_party/onnxruntime", exist_ok=True)
-        os.makedirs("third_party/temp_ort", exist_ok=True)
-        with tarfile.open("onnxruntime.tgz", "r:gz") as tar:
-            tar.extractall("third_party/temp_ort")
-        extracted_ort = glob.glob("third_party/temp_ort/onnxruntime-*")[0]
-        for item in os.listdir(extracted_ort):
-            s = os.path.join(extracted_ort, item)
-            d = os.path.join("third_party/onnxruntime", item)
-            if os.path.exists(d):
-                if os.path.isdir(d): shutil.rmtree(d)
-                else: os.remove(d)
-            shutil.move(s, d)
-        shutil.rmtree("third_party/temp_ort", ignore_errors=True)
-        os.remove("onnxruntime.tgz")
-        print("SUCCESS: macOS CI dependencies bootstrapped!")
-        '
+        with tarfile.open("ort.tgz", "r:gz") as tar:
+            tar.extractall("tmp_ort")
+        ext = glob.glob("tmp_ort/onnxruntime-*")[0]
+        for item in os.listdir(ext):
+            shutil.move(os.path.join(ext, item), os.path.join("third_party/onnxruntime", item))
+        shutil.rmtree("tmp_ort")
+        os.remove("ort.tgz")
+        print("macOS ONNX provisioned")
+        EOF
+        
+        python3 prov_ort.py
 
     # ==========================================
     # 🪟 WINDOWS DEPENDENCY BOOTSTRAP
@@ -125,8 +122,43 @@ jobs:
       if: matrix.os == 'windows-2022'
       run: |
         python -m pip install opencv-python==4.9.0.80 "numpy<2"
-        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/onnxruntime-win-x64-1.17.1.zip' -OutFile 'onnxruntime.zip'"
-        powershell -Command "Expand-Archive -Path 'onnxruntime.zip' -DestinationPath 'third_party\temp_ort' -Force"
+        
+        @"
+        import os, urllib.request, zipfile, shutil, ssl, cv2
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        t_inc = 'third_party/opencv/include/opencv2'
+        t_lib = 'third_party/opencv/lib'
+        os.makedirs(t_inc, exist_ok=True)
+        os.makedirs(t_lib, exist_ok=True)
+        
+        req = urllib.request.Request('https://github.com/opencv/opencv/archive/refs/tags/4.9.0.zip', headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, context=ctx) as resp, open('cv.zip', 'wb') as f:
+            shutil.copyfileobj(resp, f)
+        with zipfile.ZipFile('cv.zip', 'r') as z:
+            z.extractall('tmp_cv')
+            
+        shutil.copytree('tmp_cv/opencv-4.9.0/include/opencv2', t_inc, dirs_exist_ok=True)
+        for mod in os.listdir('tmp_cv/opencv-4.9.0/modules'):
+            m_inc = os.path.join('tmp_cv/opencv-4.9.0/modules', mod, 'include', 'opencv2')
+            if os.path.exists(m_inc):
+                shutil.copytree(m_inc, t_inc, dirs_exist_ok=True)
+                
+        shutil.rmtree('tmp_cv')
+        os.remove('cv.zip')
+        
+        cv2_p = os.path.dirname(cv2.__file__)
+        for f in os.listdir(cv2_p):
+            if f.endswith(('.so', '.dylib', '.pyd', '.dll')):
+                shutil.copy2(os.path.join(cv2_p, f), t_lib)
+        print('Windows OpenCV provisioned')
+        "@ > prov_cv.py
+        
+        python prov_cv.py
+        
+        Invoke-WebRequest -Uri 'https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/onnxruntime-win-x64-1.17.1.zip' -OutFile 'onnxruntime.zip'
+        Expand-Archive -Path 'onnxruntime.zip' -DestinationPath 'third_party\temp_ort' -Force
         New-Item -ItemType Directory -Force -Path "third_party\onnxruntime"
         $extracted = Get-ChildItem -Path "third_party\temp_ort\onnxruntime-win-x64-*" | Select-Object -First 1
         Move-Item -Path "$($extracted.FullName)\*" -Destination "third_party\onnxruntime\" -Force
@@ -145,8 +177,8 @@ jobs:
     - name: Run Smoke Test (Windows)
       if: matrix.os == 'windows-2022'
       run: |
-        # Inject the third_party SDK library paths directly into the Windows runtime environment
         $env:PATH = "${{ github.workspace }}\third_party\onnxruntime\lib;" + $env:PATH
+        $env:PATH = "${{ github.workspace }}\third_party\opencv\lib;" + $env:PATH
         .\build\AIStudioEngine.exe --smoke-test
       shell: pwsh
 
