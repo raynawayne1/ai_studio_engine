@@ -6,7 +6,9 @@
 #if defined(_WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#if defined(_MSC_VER)
 #pragma comment(lib, "Ws2_32.lib")
+#endif
 #else
 #include <unistd.h>
 #include <sys/types.h>
@@ -80,7 +82,7 @@ bool EngineIPCServer::start() noexcept {
     if (bind(server_socket_, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)) < 0) {
         std::cerr << "[IPC Error] Failed to bind IPC socket to port " << port_ << ".\n";
 #if defined(_WIN32)
-        closesocket(server_socket_);
+        closesocket(static_cast<SOCKET>(server_socket_));
         WSACleanup();
 #else
         close(server_socket_);
@@ -91,7 +93,7 @@ bool EngineIPCServer::start() noexcept {
     if (listen(server_socket_, 5) < 0) {
         std::cerr << "[IPC Error] Failed to listen on IPC socket.\n";
 #if defined(_WIN32)
-        closesocket(server_socket_);
+        closesocket(static_cast<SOCKET>(server_socket_));
         WSACleanup();
 #else
         close(server_socket_);
@@ -117,7 +119,7 @@ void EngineIPCServer::stop() noexcept {
 
 #if defined(_WIN32)
     if (server_socket_ != static_cast<uint64_t>(INVALID_SOCKET)) {
-        closesocket(server_socket_);
+        closesocket(static_cast<SOCKET>(server_socket_));
         server_socket_ = static_cast<uint64_t>(INVALID_SOCKET);
     }
     WSACleanup();
@@ -139,7 +141,12 @@ void EngineIPCServer::server_loop() noexcept {
     while (running_.load(std::memory_order_relaxed)) {
         fd_set read_fds;
         FD_ZERO(&read_fds);
+        
+#if defined(_WIN32)
+        FD_SET(static_cast<SOCKET>(server_socket_), &read_fds);
+#else
         FD_SET(server_socket_, &read_fds);
+#endif
 
         // Non-blocking select timeout (50ms) to ensure instant thread shutdown
         timeval timeout{};
@@ -155,7 +162,7 @@ void EngineIPCServer::server_loop() noexcept {
         socklen_t client_len = sizeof(client_addr);
         
 #if defined(_WIN32)
-        uint64_t client_socket = accept(server_socket_, reinterpret_cast<struct sockaddr*>(&client_addr), &client_len);
+        uint64_t client_socket = static_cast<uint64_t>(accept(static_cast<SOCKET>(server_socket_), reinterpret_cast<struct sockaddr*>(&client_addr), &client_len));
         if (client_socket == static_cast<uint64_t>(INVALID_SOCKET)) continue;
 #else
         int client_socket = accept(server_socket_, reinterpret_cast<struct sockaddr*>(&client_addr), &client_len);
@@ -164,13 +171,16 @@ void EngineIPCServer::server_loop() noexcept {
 
         // Disable Nagle's Algorithm for instant, zero-lag UI command transmission
         int flag = 1;
+#if defined(_WIN32)
+        setsockopt(static_cast<SOCKET>(client_socket), IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
+#else
         setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
+#endif
 
         char buffer[4096] = {0};
         
-        // Native Windows (int) vs Native POSIX (ssize_t) routing
 #if defined(_WIN32)
-        int bytes_read = recv(client_socket, buffer, static_cast<int>(sizeof(buffer) - 1), 0);
+        int bytes_read = recv(static_cast<SOCKET>(client_socket), buffer, static_cast<int>(sizeof(buffer) - 1), 0);
 #else
         ssize_t bytes_read = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
 #endif
@@ -181,7 +191,7 @@ void EngineIPCServer::server_loop() noexcept {
             // Ultra-fast Browser CORS Preflight validation
             if (request.starts_with("OPTIONS")) {
 #if defined(_WIN32)
-                send(client_socket, HTTP_CORS_OPTIONS_RESPONSE.data(), static_cast<int>(HTTP_CORS_OPTIONS_RESPONSE.size()), 0);
+                send(static_cast<SOCKET>(client_socket), HTTP_CORS_OPTIONS_RESPONSE.data(), static_cast<int>(HTTP_CORS_OPTIONS_RESPONSE.size()), 0);
 #else
                 send(client_socket, HTTP_CORS_OPTIONS_RESPONSE.data(), HTTP_CORS_OPTIONS_RESPONSE.size(), 0);
 #endif
@@ -213,9 +223,8 @@ void EngineIPCServer::server_loop() noexcept {
                 http_response.append(HTTP_RESPONSE_HEADER_END);
                 http_response.append(json_response);
 
-                // Native Windows (int) vs Native POSIX (size_t) payload routing
 #if defined(_WIN32)
-                send(client_socket, http_response.c_str(), static_cast<int>(http_response.size()), 0);
+                send(static_cast<SOCKET>(client_socket), http_response.c_str(), static_cast<int>(http_response.size()), 0);
 #else
                 send(client_socket, http_response.c_str(), http_response.size(), 0);
 #endif
@@ -223,7 +232,7 @@ void EngineIPCServer::server_loop() noexcept {
         }
 
 #if defined(_WIN32)
-        closesocket(client_socket);
+        closesocket(static_cast<SOCKET>(client_socket));
 #else
         close(client_socket);
 #endif
