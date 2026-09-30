@@ -38,11 +38,9 @@ jobs:
         sudo apt install -y build-essential cmake ninja-build libopencv-dev
         python3 -m pip install opencv-python==4.9.0.80 "numpy<2"
         
-        # Link system headers into local directory for CMake
         mkdir -p third_party/opencv/include
         ln -s /usr/include/opencv4/opencv2 third_party/opencv/include/opencv2
         
-        # Download ONNX Runtime Linux x64 (Stable v1.16.3 for GCC compatibility)
         curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-linux-x64-1.16.3.tgz -o onnxruntime.tgz
         mkdir -p third_party/onnxruntime third_party/temp_ort
         tar -xzf onnxruntime.tgz -C third_party/temp_ort
@@ -79,7 +77,6 @@ jobs:
             if os.path.exists(m_inc):
                 shutil.copytree(m_inc, t_inc, dirs_exist_ok=True)
                 
-        # CRITICAL FIX: Generate opencv_modules.hpp
         with open(os.path.join(t_inc, "opencv_modules.hpp"), "w") as f:
             f.write("#ifndef OPENCV_MODULES_HPP\n#define OPENCV_MODULES_HPP\n#define HAVE_OPENCV_CORE 1\n#define HAVE_OPENCV_IMGPROC 1\n#define HAVE_OPENCV_VIDEOIO 1\n#define HAVE_OPENCV_HIGHGUI 1\n#define HAVE_OPENCV_VIDEO 1\n#define HAVE_OPENCV_OBJDETECT 1\n#define HAVE_OPENCV_DNN 1\n#define HAVE_OPENCV_PHOTO 1\n#define HAVE_OPENCV_CALIB3D 1\n#define HAVE_OPENCV_FEATURES2D 1\n#define HAVE_OPENCV_ML 1\n#define HAVE_OPENCV_FLANN 1\n#define HAVE_OPENCV_STITCHING 1\n#endif\n")
             
@@ -161,7 +158,6 @@ jobs:
         
         python prov_cv.py
         
-        # Use ONNX Runtime v1.16.3 to fix MinGW GCC 14 compatibility bugs
         Invoke-WebRequest -Uri 'https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-win-x64-1.16.3.zip' -OutFile 'onnxruntime.zip'
         Expand-Archive -Path 'onnxruntime.zip' -DestinationPath 'third_party\temp_ort' -Force
         New-Item -ItemType Directory -Force -Path "third_party\onnxruntime"
@@ -173,8 +169,20 @@ jobs:
     # ==========================================
     # 🔨 BUILD & SMOKE TEST
     # ==========================================
-    - name: Configure CMake (Release Mode with Ninja)
+    
+    # NEW STEP: Activate Microsoft Visual C++ environment for Windows
+    - name: Enable MSVC on Windows
+      if: matrix.os == 'windows-2022'
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Configure CMake (Unix)
+      if: matrix.os != 'windows-2022'
       run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+    # NEW STEP: Force CMake to use cl.exe (MSVC) instead of GCC on Windows
+    - name: Configure CMake (Windows)
+      if: matrix.os == 'windows-2022'
+      run: cmake -B build -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release
 
     - name: Build Engine
       run: cmake --build build --config Release
