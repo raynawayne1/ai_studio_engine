@@ -1,5 +1,6 @@
 #include "ModelManager.hpp"
 #include <iostream>
+#include <mutex>
 
 namespace ai_studio::ai {
 
@@ -7,6 +8,7 @@ ModelManager::ModelManager(std::filesystem::path models_directory) noexcept
     : models_dir_(std::move(models_directory)) {}
 
 bool ModelManager::scan_local_models() noexcept {
+    std::unique_lock lock(mutex_);
     std::cout << "[Model Manager] Scanning local model cache directory: " << models_dir_.string() << "\n";
     
     try {
@@ -29,7 +31,7 @@ bool ModelManager::scan_local_models() noexcept {
                 });
 
                 std::cout << "[Model Manager] Discovered cached model: " << model_id 
-                          << " (" << (file_size / (1024 * 1024)) << " MB)\n";
+                          << " (" << (file_size / 1024) << " KB)\n";
             }
         }
         return true;
@@ -40,6 +42,7 @@ bool ModelManager::scan_local_models() noexcept {
 }
 
 bool ModelManager::register_model(std::string_view model_id, const std::filesystem::path& path) noexcept {
+    std::unique_lock lock(mutex_);
     try {
         if (std::filesystem::exists(path)) [[likely]] {
             std::string id_str(model_id);
@@ -58,12 +61,22 @@ bool ModelManager::register_model(std::string_view model_id, const std::filesyst
 }
 
 const ModelMetadata* ModelManager::get_model_metadata(std::string_view model_id) const noexcept {
-    // Transparent lookup: evaluates string_view directly against std::string keys with zero allocations
+    std::shared_lock lock(mutex_);
     auto it = cached_models_.find(model_id);
     if (it != cached_models_.end()) [[likely]] {
         return &it->second;
     }
     return nullptr;
+}
+
+std::vector<ModelMetadata> ModelManager::get_all_models() const noexcept {
+    std::shared_lock lock(mutex_);
+    std::vector<ModelMetadata> list;
+    list.reserve(cached_models_.size());
+    for (const auto& [_, meta] : cached_models_) {
+        list.push_back(meta);
+    }
+    return list;
 }
 
 } // namespace ai_studio::ai

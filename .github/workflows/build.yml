@@ -166,15 +166,13 @@ jobs:
     - name: Run Smoke Test (Windows)
       if: matrix.os == 'windows-2022'
       run: |
-        # BULLETPROOF DLL RESOLUTION: Recursively find ALL .dll files in third_party
-        # and forcefully copy them right next to the executable. This guarantees zero-lag
-        # loading and completely bypasses Windows PATH environment variables.
         Get-ChildItem -Path "third_party" -Filter "*.dll" -Recurse | Copy-Item -Destination "build\" -Force
-        
-        # Execute smoke test
         .\build\AIStudioEngine.exe --smoke-test
       shell: pwsh
 
     - name: Run Smoke Test (Unix)
       if: matrix.os != 'windows-2022'
-      run: ./build/AIStudioEngine --smoke-test
+      run: |
+        export LD_LIBRARY_PATH="$PWD/third_party/onnxruntime/lib:$LD_LIBRARY_PATH"
+        export DYLD_LIBRARY_PATH="$PWD/third_party/onnxruntime/lib:$DYLD_LIBRARY_PATH"
+        ./build/AIStudioEngine --smoke-test

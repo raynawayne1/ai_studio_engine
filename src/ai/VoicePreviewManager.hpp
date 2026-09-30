@@ -4,12 +4,13 @@
 #include <string_view>
 #include <filesystem>
 #include <atomic>
+#include <algorithm>
 #include <cstdint>
 #include "VoiceLibraryManager.hpp"
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable: 4324) // structure was padded due to alignment specifier
+#pragma warning(disable: 4324)
 #define AI_FORCE_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
 #define AI_FORCE_INLINE inline __attribute__((always_inline))
@@ -37,7 +38,7 @@ public:
     VoicePreviewManager(VoicePreviewManager&&) = delete;
     VoicePreviewManager& operator=(VoicePreviewManager&&) = delete;
 
-    // Step 1: Load and cryptographically/structurally verify the active local voice model before call
+    // Step 1: Load and verify the active local voice model before call
     [[nodiscard]] bool load_and_verify_active_model() noexcept;
 
     // Step 2: Configure advanced pre-call voice parameters
@@ -52,19 +53,19 @@ public:
             return false;
         }
 
-        const float pitch_gain = 1.0f + (static_cast<float>(current_config_.pitch_shift) * 0.05f);
+        const float pitch_gain = 1.0f + (static_cast<float>(current_config_.pitch_shift) * 0.04f);
         const float index_weight = current_config_.index_rate;
         const float combined_scale = pitch_gain * index_weight;
         const float residual_scale = 1.0f - index_weight;
 
-        // Strict compiler vectorization directives isolated per compiler family
         #if defined(__clang__)
         #pragma clang loop vectorize(enable) interleave(enable)
         #elif defined(__GNUC__) && !defined(__clang__)
         #pragma GCC ivdep
         #endif
         for (size_t i = 0; i < sample_count; ++i) {
-            output_samples[i] = (input_samples[i] * combined_scale) + (input_samples[i] * residual_scale);
+            const float s = (input_samples[i] * combined_scale) + (input_samples[i] * residual_scale);
+            output_samples[i] = std::clamp(s, -0.98f, 0.98f);
         }
 
         return true;

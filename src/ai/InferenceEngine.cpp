@@ -3,6 +3,13 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
+#include <filesystem>
+#include <algorithm>
+#include <cstring>
+
+#if !defined(_WIN32)
+#include <dlfcn.h>
+#endif
 
 namespace ai_studio::ai {
 
@@ -11,18 +18,18 @@ ExecutionProvider InferenceEngine::s_active_provider = ExecutionProvider::CPU;
 
 ExecutionProvider InferenceEngine::select_optimal_provider() noexcept {
 #if defined(__APPLE__)
-    return ExecutionProvider::CoreML; // Apple Silicon hardware acceleration
+    return ExecutionProvider::CoreML; // Apple CoreML (Neural Engine / Metal GPU)
 #elif defined(_WIN32)
-    return ExecutionProvider::DirectML; // Windows hardware acceleration
+    return ExecutionProvider::DirectML; // Windows DirectX 12 hardware acceleration
 #else
-    return ExecutionProvider::CUDA; // Linux primary hardware acceleration
+    return ExecutionProvider::CUDA; // Linux NVIDIA hardware acceleration
 #endif
 }
 
 std::string_view InferenceEngine::provider_to_string(ExecutionProvider provider) noexcept {
     switch (provider) {
-        case ExecutionProvider::CPU: return "CPU (Extreme Multi-Threaded & Vectorized)";
-        case ExecutionProvider::CoreML: return "Apple CoreML (Neural Engine / Metal)";
+        case ExecutionProvider::CPU: return "CPU (Vectorized Multi-Threaded)";
+        case ExecutionProvider::CoreML: return "Apple CoreML (Neural Engine / GPU)";
         case ExecutionProvider::Metal: return "Apple Metal GPU";
         case ExecutionProvider::CUDA: return "NVIDIA CUDA";
         case ExecutionProvider::TensorRT: return "NVIDIA TensorRT";
@@ -33,12 +40,15 @@ std::string_view InferenceEngine::provider_to_string(ExecutionProvider provider)
 
 bool InferenceEngine::initialize_backend() noexcept {
     try {
-        // EXTREME OPTIMIZATION: Disable all telemetry, tracing, and lower log level to prevent file I/O blocking
+        if (s_env) return true;
+
+        // EXTREME OPTIMIZATION: Disable telemetry & logging to avoid file I/O thread stalls
         s_env = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_FATAL, "AIStudioEngine_ZeroLag");
         s_env->DisableTelemetryEvents();
         
         s_active_provider = select_optimal_provider();
-        std::cout << "[ONNX Runtime] Native Backend initialized globally with ZERO-LAG, LOCK-FREE parameters.\n";
+        std::cout << "[ONNX Runtime] Native Backend initialized (" 
+                  << provider_to_string(s_active_provider) << ") with zero-lag parameters.\n";
         return true;
     } catch (const Ort::Exception& e) {
         std::cerr << "[ONNX Fatal Error] " << e.what() << '\n';
@@ -48,68 +58,88 @@ bool InferenceEngine::initialize_backend() noexcept {
 
 void InferenceEngine::shutdown() noexcept {
     s_env.reset();
-    std::cout << "[ONNX Runtime] Hardware resources released instantly.\n";
+    std::cout << "[ONNX Runtime] Hardware resources released cleanly.\n";
+}
+
+bool InferenceEngine::is_initialized() noexcept {
+    return s_env != nullptr;
 }
 
 Ort::Env& InferenceEngine::get_env() {
     if (!s_env) {
-        throw std::runtime_error("ONNX Environment not initialized. Call initialize_backend() first.");
+        if (!initialize_backend()) {
+            throw std::runtime_error("ONNX Environment initialization failed.");
+        }
     }
     return *s_env;
 }
 
 std::unique_ptr<Ort::Session> InferenceEngine::create_session(const std::string& model_path) {
-    if (!s_env) throw std::runtime_error("ONNX Environment not initialized");
+    if (!std::filesystem::exists(model_path)) {
+        throw std::runtime_error("Model file not found on disk: " + model_path);
+    }
 
+    auto& env = get_env();
     Ort::SessionOptions session_options;
     
-    // 1. EXTREME SPEED: Enable ALL Graph Optimizations (Node fusion, constant folding, layer normalization)
+    // 1. GRAPH OPTIMIZATIONS: Node fusion, constant folding, SIMD kernel selection
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     
-    // 2. ZERO ALLOCATION: Force ONNX to reuse memory addresses for static audio/video shapes
+    // 2. ZERO RUNTIME MALLOC: Pre-allocate static memory buffers
     session_options.EnableMemPattern();     
     session_options.EnableCpuMemArena();    
 
-    // 3. ZERO LOCK CONTENTION: Force sequential execution to maximize CPU Cache L1/L2 hits
+    // 3. ZERO LOCK CONTENTION: Sequential execution keeps CPU L1/L2 caches hot
     session_options.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
     
-    // 4. THREAD POOLING: Bind explicitly to physical performance cores without OS context-switching overhead
+    // 4. PERFORMANCE CORES: Bind to hardware performance threads without OS context thrash
     unsigned int hw_concurrency = std::thread::hardware_concurrency();
     unsigned int optimal_threads = (hw_concurrency > 2) ? (hw_concurrency - 1) : 1;
-    session_options.SetIntraOpNumThreads(optimal_threads);
-    session_options.SetInterOpNumThreads(1); // Kept at 1 to prevent resource starvation across Face/Voice/Body sub-models
+    session_options.SetIntraOpNumThreads(static_cast<int>(optimal_threads));
+    session_options.SetInterOpNumThreads(1);
 
     // ========================================================================
-    // 🚀 CROSS-PLATFORM HARDWARE ACCELERATOR BINDINGS (WITH SAFE CPU FALLBACK)
+    // 🚀 DYNAMIC CROSS-PLATFORM HARDWARE ACCELERATOR BINDING
     // ========================================================================
     try {
-        if (s_active_provider == ExecutionProvider::CoreML) {
-            std::unordered_map<std::string, std::string> coreml_options;
-            coreml_options["EnableOnSubgraphs"] = "1"; // Force entire graph to Neural Engine
-            session_options.AppendExecutionProvider("CoreML", coreml_options);
-        } else if (s_active_provider == ExecutionProvider::DirectML) {
-            std::unordered_map<std::string, std::string> dml_options;
-            dml_options["device_id"] = "0"; // Map to primary dedicated GPU
-            session_options.AppendExecutionProvider("DML", dml_options);
-        } else if (s_active_provider == ExecutionProvider::CUDA) {
-            std::unordered_map<std::string, std::string> cuda_options;
-            cuda_options["cudnn_conv_algo_search"] = "EXHAUSTIVE"; // Find the absolute fastest memory convolution path
-            cuda_options["arena_extend_strategy"] = "kNextPowerOfTwo";
-            session_options.AppendExecutionProvider("CUDA", cuda_options);
+        const auto available = Ort::GetAvailableProviders();
+        const auto has_provider = [&](std::string_view name) noexcept {
+            return std::find(available.begin(), available.end(), name) != available.end();
+        };
+
+#if defined(__APPLE__)
+        if (has_provider("CoreMLExecutionProvider")) {
+            using AppendCoreMLFn = OrtStatus* (*)(OrtSessionOptions*, uint32_t);
+            void* sym = dlsym(RTLD_DEFAULT, "OrtSessionOptionsAppendExecutionProvider_CoreML");
+            if (sym != nullptr) {
+                AppendCoreMLFn append_coreml = nullptr;
+                std::memcpy(&append_coreml, &sym, sizeof(sym));
+                OrtStatus* status = append_coreml(session_options, 0);
+                if (status != nullptr) {
+                    Ort::GetApi().ReleaseStatus(status);
+                }
+            }
+        }
+#endif
+
+        if (has_provider("CUDAExecutionProvider")) {
+            OrtCUDAProviderOptions cuda_opts{};
+            cuda_opts.device_id = 0;
+            session_options.AppendExecutionProvider_CUDA(cuda_opts);
+        } else if (has_provider("XnnpackExecutionProvider")) {
+            std::unordered_map<std::string, std::string> xnn_options;
+            xnn_options["intra_op_num_threads"] = std::to_string(optimal_threads);
+            session_options.AppendExecutionProvider("XNNPACK", xnn_options);
         }
     } catch (const Ort::Exception&) {
-        // [SAFETY NET]: If the user's computer doesn't have the GPU drivers installed,
-        // or if GitHub Actions CI is running without a GPU, ONNX throws an exception.
-        // We catch it silently and fall back to our highly-vectorized multi-threaded CPU pool.
+        // Gracefully fall back to the pre-allocated multi-threaded SIMD CPU arena
     }
 
 #if defined(_WIN32)
-    // Windows specifically requires wide strings for filesystem paths
     std::wstring wide_path(model_path.begin(), model_path.end());
-    return std::make_unique<Ort::Session>(*s_env, wide_path.c_str(), session_options);
+    return std::make_unique<Ort::Session>(env, wide_path.c_str(), session_options);
 #else
-    // Unix/Linux/macOS use standard char strings natively
-    return std::make_unique<Ort::Session>(*s_env, model_path.c_str(), session_options);
+    return std::make_unique<Ort::Session>(env, model_path.c_str(), session_options);
 #endif
 }
 

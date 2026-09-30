@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cstring>
 #include <string>
+#include <charconv>
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -17,6 +18,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <csignal>
 #endif
 
 namespace ai_studio::ipc {
@@ -35,10 +37,34 @@ constexpr std::string_view HTTP_RESPONSE_HEADER_START =
     "Access-Control-Allow-Origin: *\r\n"
     "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n"
     "Access-Control-Allow-Headers: Content-Type\r\n"
+    "Cache-Control: no-store\r\n"
     "Content-Length: ";
 
 constexpr std::string_view HTTP_RESPONSE_HEADER_END = 
     "\r\nConnection: close\r\n\r\n";
+
+// Fast zero-allocation Content-Length parser for split TCP segments
+static size_t parse_content_length(std::string_view headers) noexcept {
+    constexpr std::string_view cl_key_upper = "Content-Length:";
+    constexpr std::string_view cl_key_lower = "content-length:";
+
+    size_t pos = headers.find(cl_key_upper);
+    if (pos == std::string_view::npos) {
+        pos = headers.find(cl_key_lower);
+    }
+    if (pos == std::string_view::npos) {
+        return 0;
+    }
+
+    pos += cl_key_upper.size();
+    while (pos < headers.size() && (headers[pos] == ' ' || headers[pos] == '\t')) {
+        ++pos;
+    }
+
+    size_t length = 0;
+    std::from_chars(headers.data() + pos, headers.data() + headers.size(), length);
+    return length;
+}
 
 EngineIPCServer::EngineIPCServer(uint16_t port) noexcept
     : port_(port) {}
@@ -58,6 +84,9 @@ bool EngineIPCServer::start() noexcept {
         std::cerr << "[IPC Error] WSAStartup failed.\n";
         return false;
     }
+#else
+    // Ignore SIGPIPE globally on POSIX so broken client pipes never kill the daemon
+    std::signal(SIGPIPE, SIG_IGN);
 #endif
 
     server_socket_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -90,7 +119,7 @@ bool EngineIPCServer::start() noexcept {
         return false;
     }
 
-    if (listen(server_socket_, 5) < 0) {
+    if (listen(server_socket_, 16) < 0) {
         std::cerr << "[IPC Error] Failed to listen on IPC socket.\n";
 #if defined(_WIN32)
         closesocket(static_cast<SOCKET>(server_socket_));
@@ -148,14 +177,14 @@ void EngineIPCServer::server_loop() noexcept {
         FD_SET(server_socket_, &read_fds);
 #endif
 
-        // Non-blocking select timeout (50ms) to ensure instant thread shutdown
+        // Non-blocking select timeout (25ms) for ultra-responsive shutdown and polling
         timeval timeout{};
         timeout.tv_sec = 0;
-        timeout.tv_usec = 50000;
+        timeout.tv_usec = 25000;
 
         int activity = select(static_cast<int>(server_socket_ + 1), &read_fds, nullptr, nullptr, &timeout);
         if (activity <= 0) {
-            continue; // Timeout or error, check running_ flag again
+            continue;
         }
 
         sockaddr_in client_addr{};
@@ -169,16 +198,26 @@ void EngineIPCServer::server_loop() noexcept {
         if (client_socket < 0) continue;
 #endif
 
-        // Disable Nagle's Algorithm for instant, zero-lag UI command transmission
+        // 1. Disable Nagle's Algorithm for instant sub-millisecond UI response
         int flag = 1;
 #if defined(_WIN32)
         setsockopt(static_cast<SOCKET>(client_socket), IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
+        DWORD rcv_timeout_ms = 25;
+        setsockopt(static_cast<SOCKET>(client_socket), SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rcv_timeout_ms), sizeof(rcv_timeout_ms));
 #else
         setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
+        #if defined(__APPLE__)
+        setsockopt(client_socket, SOL_SOCKET, SO_NOSIGPIPE, &flag, sizeof(flag));
+        #endif
+        timeval rcv_tv{};
+        rcv_tv.tv_sec = 0;
+        rcv_tv.tv_usec = 25000;
+        setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
 #endif
 
-        char buffer[4096] = {0};
-        
+        char buffer[8192] = {0};
+        size_t total_read = 0;
+
 #if defined(_WIN32)
         int bytes_read = recv(static_cast<SOCKET>(client_socket), buffer, static_cast<int>(sizeof(buffer) - 1), 0);
 #else
@@ -186,16 +225,38 @@ void EngineIPCServer::server_loop() noexcept {
 #endif
 
         if (bytes_read > 0) {
-            std::string_view request(buffer, static_cast<size_t>(bytes_read));
+            total_read = static_cast<size_t>(bytes_read);
+            std::string_view request(buffer, total_read);
 
             // Ultra-fast Browser CORS Preflight validation
             if (request.starts_with("OPTIONS")) {
 #if defined(_WIN32)
                 send(static_cast<SOCKET>(client_socket), HTTP_CORS_OPTIONS_RESPONSE.data(), static_cast<int>(HTTP_CORS_OPTIONS_RESPONSE.size()), 0);
+#elif defined(__linux__)
+                send(client_socket, HTTP_CORS_OPTIONS_RESPONSE.data(), HTTP_CORS_OPTIONS_RESPONSE.size(), MSG_NOSIGNAL);
 #else
                 send(client_socket, HTTP_CORS_OPTIONS_RESPONSE.data(), HTTP_CORS_OPTIONS_RESPONSE.size(), 0);
 #endif
             } else {
+                // Ensure full HTTP payload is received if headers and body arrived in separate TCP frames
+                auto header_end_pos = request.find("\r\n\r\n");
+                if (header_end_pos != std::string_view::npos) {
+                    size_t body_offset = header_end_pos + 4;
+                    size_t expected_body_len = parse_content_length(request.substr(0, header_end_pos));
+                    while (expected_body_len > 0 &&
+                           (total_read - body_offset) < expected_body_len &&
+                           total_read < (sizeof(buffer) - 1)) {
+#if defined(_WIN32)
+                        int more = recv(static_cast<SOCKET>(client_socket), buffer + total_read, static_cast<int>(sizeof(buffer) - 1 - total_read), 0);
+#else
+                        ssize_t more = recv(client_socket, buffer + total_read, sizeof(buffer) - 1 - total_read, 0);
+#endif
+                        if (more <= 0) break;
+                        total_read += static_cast<size_t>(more);
+                    }
+                    request = std::string_view(buffer, total_read);
+                }
+
                 // Zero-copy HTTP payload extraction
                 std::string_view body_json = request;
                 if (auto pos = request.find("\r\n\r\n"); pos != std::string_view::npos) {
@@ -225,6 +286,8 @@ void EngineIPCServer::server_loop() noexcept {
 
 #if defined(_WIN32)
                 send(static_cast<SOCKET>(client_socket), http_response.c_str(), static_cast<int>(http_response.size()), 0);
+#elif defined(__linux__)
+                send(client_socket, http_response.c_str(), http_response.size(), MSG_NOSIGNAL);
 #else
                 send(client_socket, http_response.c_str(), http_response.size(), 0);
 #endif

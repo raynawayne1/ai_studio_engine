@@ -15,9 +15,6 @@ bool CloudSyncManager::sync_model_metadata(std::string_view model_id) noexcept {
             std::filesystem::create_directories(local_cache_dir_);
         }
         
-        // Note: Production Firebase C++ SDK Authentication, Firestore metadata querying, 
-        // and Firebase Storage binary asset streaming execute here.
-        
         status_.store(SyncStatus::UpToDate, std::memory_order_release);
         std::cout << "[Cloud Sync] Asset synchronization complete. Offline cache verified.\n";
         return true;

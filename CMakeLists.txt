@@ -9,11 +9,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Threads REQUIRED)
 
 # =========================================================================
-# LOCAL THIRD-PARTY SDK PATH RESOLUTION (Zero Homebrew Dependencies)
+# LOCAL THIRD-PARTY SDK PATH RESOLUTION (macOS, Windows, Linux CI)
 # =========================================================================
 set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
-# ONNX Runtime Local vs System Paths
+# 1. ONNX Runtime Local vs System Paths
 set(ONNXRUNTIME_LOCAL_DIR "${THIRD_PARTY_DIR}/onnxruntime")
 if(EXISTS "${ONNXRUNTIME_LOCAL_DIR}/include")
     set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_LOCAL_DIR}/include")
@@ -29,18 +29,23 @@ else()
     set(ONNXRUNTIME_LIBRARY "onnxruntime")
 endif()
 
-# OpenCV Platform-Specific Resolution
+# 2. OpenCV Platform-Specific Resolution (Matches .github/workflows/build.yml)
 if(APPLE)
     set(OPENCV_INCLUDE_DIRS "${THIRD_PARTY_DIR}/opencv/include")
     set(OPENCV_LIBS "") # Resolved via runtime dynamic loader for Python wheel bundle
 elseif(WIN32)
     set(OPENCV_LOCAL_DIR "${THIRD_PARTY_DIR}/opencv")
     set(OPENCV_INCLUDE_DIRS "${OPENCV_LOCAL_DIR}/include")
-    file(GLOB OPENCV_LIBS "${OPENCV_LOCAL_DIR}/lib/*.lib")
+    # Link Release opencv_world490.lib specifically to avoid debug/release symbol mismatch
+    if(EXISTS "${OPENCV_LOCAL_DIR}/lib/opencv_world490.lib")
+        set(OPENCV_LIBS "${OPENCV_LOCAL_DIR}/lib/opencv_world490.lib")
+    else()
+        file(GLOB OPENCV_LIBS "${OPENCV_LOCAL_DIR}/lib/*.lib")
+    endif()
 else()
-    # Linux (Ubuntu) - Explicitly link system OpenCV components
-    find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio photo)
-    set(OPENCV_INCLUDE_DIRS ${OpenCV_INCLUDE_DIRS})
+    # Linux (Ubuntu) - Use libopencv-dev system libraries installed in build.yml
+    find_package(OpenCV REQUIRED)
+    set(OPENCV_INCLUDE_DIRS "${THIRD_PARTY_DIR}/opencv/include" ${OpenCV_INCLUDE_DIRS})
     set(OPENCV_LIBS ${OpenCV_LIBS})
 endif()
 
@@ -91,11 +96,17 @@ if(WIN32)
             $<TARGET_FILE_DIR:${PROJECT_NAME}>
         )
     endif()
-endif()
-
-if(APPLE)
-    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework CoreML" "-framework Metal" "-framework Foundation")
+elseif(APPLE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        "-framework CoreML"
+        "-framework Metal"
+        "-framework Foundation"
+        ${CMAKE_DL_LIBS}
+    )
     target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-undefined,dynamic_lookup")
+elseif(UNIX)
+    # Linux (Ubuntu): Link librt (for shm_open/shm_unlink) and libdl
+    target_link_libraries(${PROJECT_NAME} PRIVATE rt ${CMAKE_DL_LIBS})
 endif()
 
 # =========================================================================
@@ -109,6 +120,7 @@ else()
         -Wextra 
         -Werror 
         -pedantic 
+        -Wno-unknown-pragmas
         -O3 
         -ffast-math 
         -march=native 

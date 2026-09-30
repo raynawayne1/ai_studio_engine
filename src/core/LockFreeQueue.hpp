@@ -6,27 +6,28 @@
 
 #ifdef _MSC_VER
 #pragma warning(push)
-#pragma warning(disable: 4324) // structure was padded due to alignment specifier
+#pragma warning(disable: 4324)
 #endif
 
 namespace ai_studio::core {
 
 /**
  * Ultra-fast, Lock-Free Single-Producer Single-Consumer (SPSC) Ring Buffer.
- * Crucial for real-time audio/video pipelines. Guarantees zero locks, 
- * zero mutexes, and zero dynamic allocations during real-time processing.
+ * Uses power-of-two bitwise masking (& mask_) instead of integer division (%)
+ * for single-cycle throughput and zero slot loss.
  */
 template<typename T>
 class LockFreeQueue {
 public:
-    // Pre-allocates the buffer memory during setup so the real-time thread never allocates
-    explicit LockFreeQueue(size_t capacity) 
-        : capacity_(capacity), buffer_(capacity) {}
+    explicit LockFreeQueue(size_t min_capacity)
+        : capacity_(next_power_of_two(min_capacity + 1)),
+          mask_(capacity_ - 1),
+          buffer_(capacity_) {}
 
-    // Called ONLY by the Producer thread (e.g., Microphone capture)
+    // Called ONLY by the Producer thread
     bool push(const T& item) noexcept {
         const size_t current_tail = tail_.load(std::memory_order_relaxed);
-        const size_t next_tail = increment(current_tail);
+        const size_t next_tail = (current_tail + 1) & mask_;
         
         if (next_tail != head_.load(std::memory_order_acquire)) {
             buffer_[current_tail] = item;
@@ -36,7 +37,7 @@ public:
         return false; // Queue is completely full
     }
 
-    // Called ONLY by the Consumer thread (e.g., AI Inference or Virtual Driver)
+    // Called ONLY by the Consumer thread
     bool pop(T& out_item) noexcept {
         const size_t current_head = head_.load(std::memory_order_relaxed);
         
@@ -45,20 +46,23 @@ public:
         }
         
         out_item = buffer_[current_head];
-        head_.store(increment(current_head), std::memory_order_release);
+        head_.store((current_head + 1) & mask_, std::memory_order_release);
         return true;
     }
 
 private:
-    size_t increment(size_t index) const noexcept {
-        return (index + 1) % capacity_;
+    static constexpr size_t next_power_of_two(size_t n) noexcept {
+        size_t p = 2;
+        while (p < n) {
+            p <<= 1;
+        }
+        return p;
     }
 
     size_t capacity_;
+    size_t mask_;
     std::vector<T> buffer_;
     
-    // alignas(64) prevents CPU Cache False Sharing by ensuring 
-    // head_ and tail_ live on completely different CPU cache lines.
     alignas(64) std::atomic<size_t> head_{0};
     alignas(64) std::atomic<size_t> tail_{0};
 };

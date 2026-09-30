@@ -1,6 +1,7 @@
 build/
 bin/
 out/
+ui/dist/
 compile_commands.json
 .env
 *.pem
@@ -10,5 +11,5 @@ Thumbs.db
 ui/node_modules/
 node_modules/
 third_party/
-third_party/
-third_party/
+models/*.onnx
+models/*.wav

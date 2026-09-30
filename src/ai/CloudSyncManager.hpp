@@ -7,7 +7,7 @@
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable: 4324) // structure was padded due to alignment specifier
+#pragma warning(disable: 4324)
 #endif
 
 namespace ai_studio::ai {
@@ -24,20 +24,26 @@ public:
     explicit CloudSyncManager(std::filesystem::path local_cache_dir) noexcept;
     ~CloudSyncManager() noexcept = default;
 
-    // Prevent copying and moving
     CloudSyncManager(const CloudSyncManager&) = delete;
     CloudSyncManager& operator=(const CloudSyncManager&) = delete;
     CloudSyncManager(CloudSyncManager&&) = delete;
     CloudSyncManager& operator=(CloudSyncManager&&) = delete;
 
-    // Initiates asynchronous cloud metadata synchronization (Firestore/Storage abstraction)
     [[nodiscard]] bool sync_model_metadata(std::string_view model_id) noexcept;
-
-    // Verifies local asset integrity against cloud synchronization targets
     [[nodiscard]] bool verify_local_asset(std::string_view model_id) const noexcept;
 
     [[nodiscard]] SyncStatus get_status() const noexcept {
         return status_.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] static std::string_view status_to_string(SyncStatus status) noexcept {
+        switch (status) {
+            case SyncStatus::Idle: return "Idle";
+            case SyncStatus::Synchronizing: return "Synchronizing";
+            case SyncStatus::UpToDate: return "UpToDate";
+            case SyncStatus::Error: return "Error";
+            default: return "Unknown";
+        }
     }
 
 private:

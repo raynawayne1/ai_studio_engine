@@ -3,8 +3,9 @@
 #include <string>
 #include <string_view>
 #include <memory>
+#include <vector>
 #include <unordered_map>
-#include <onnxruntime_cxx_api.h> // REAL ONNX RUNTIME C++ API
+#include <onnxruntime_cxx_api.h>
 
 namespace ai_studio::ai {
 
@@ -22,20 +23,22 @@ public:
     InferenceEngine() = delete;
     ~InferenceEngine() = delete;
 
-    static ExecutionProvider select_optimal_provider() noexcept;
-    static std::string_view provider_to_string(ExecutionProvider provider) noexcept;
+    [[nodiscard]] static ExecutionProvider select_optimal_provider() noexcept;
+    [[nodiscard]] static std::string_view provider_to_string(ExecutionProvider provider) noexcept;
     
-    // Initializes the global ONNX runtime environment (zero-lag telemetry config)
-    static bool initialize_backend() noexcept;
+    // Initializes the global ONNX runtime environment (zero-lag, lock-free config)
+    [[nodiscard]] static bool initialize_backend() noexcept;
     
     // Frees hardware resources cleanly
     static void shutdown() noexcept;
 
-    // Creates an extremely optimized inference session for FaceSwap / RVC
-    static std::unique_ptr<Ort::Session> create_session(const std::string& model_path);
+    // Creates an extremely optimized inference session for FaceSwap / RVC with safe fallbacks
+    [[nodiscard]] static std::unique_ptr<Ort::Session> create_session(const std::string& model_path);
 
     // Access the global environment required by Ort::Session
-    static Ort::Env& get_env();
+    [[nodiscard]] static Ort::Env& get_env();
+
+    [[nodiscard]] static bool is_initialized() noexcept;
 
 private:
     static std::unique_ptr<Ort::Env> s_env;

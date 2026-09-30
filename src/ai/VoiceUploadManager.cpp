@@ -23,8 +23,9 @@ bool VoiceUploadManager::validate_source_media(std::string_view file_path) noexc
             return static_cast<char>(std::tolower(c));
         });
 
-        // Verify high-fidelity audio/video codecs suitable for RVC feature extraction
-        if (ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".m4a" && ext != ".mp4" && ext != ".mov") [[unlikely]] {
+        // Support both raw studio audio/video sources AND pre-compiled .onnx RVC models
+        if (ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".m4a" &&
+            ext != ".ogg" && ext != ".mp4" && ext != ".mov" && ext != ".onnx") [[unlikely]] {
             std::cerr << "[Voice Upload Error] Unsupported media format for voice cloning: " << ext << "\n";
             return false;
         }
@@ -52,23 +53,38 @@ bool VoiceUploadManager::preprocess_voice_source(std::string_view profile_id, st
     current_metadata_.display_name = display_name;
     current_metadata_.sample_rate = 48000;
     current_metadata_.channels = 1;
-    current_metadata_.duration_ms = 15000; // Optimized sample window extraction
+    current_metadata_.duration_ms = 15000;
 
     std::filesystem::path target_model_path = storage_directory_;
     target_model_path /= std::string(profile_id);
     target_model_path += ".onnx";
     current_metadata_.processed_model_path = target_model_path;
 
-    // Fast local profile weight compilation for real-time inference readiness
     try {
         if (!std::filesystem::exists(storage_directory_)) {
             std::filesystem::create_directories(storage_directory_);
         }
-        std::ofstream profile_file(target_model_path, std::ios::binary);
-        if (profile_file.is_open()) {
-            // Write optimized studio-grade voice model header for local caching
-            const char header[] = "AI_STUDIO_RVC_VOICE_PROFILE_V2";
-            profile_file.write(header, sizeof(header));
+
+        // If user uploaded an already-compiled .onnx file, copy or reference it directly without overwriting
+        std::string src_ext = current_metadata_.source_file_path.extension().string();
+        std::transform(src_ext.begin(), src_ext.end(), src_ext.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+
+        if (src_ext == ".onnx" && std::filesystem::exists(current_metadata_.source_file_path)) {
+            if (current_metadata_.source_file_path != target_model_path) {
+                std::filesystem::copy_file(
+                    current_metadata_.source_file_path,
+                    target_model_path,
+                    std::filesystem::copy_options::overwrite_existing
+                );
+            }
+        } else {
+            std::ofstream profile_file(target_model_path, std::ios::binary);
+            if (profile_file.is_open()) {
+                const char header[] = "AI_STUDIO_RVC_VOICE_PROFILE_V2";
+                profile_file.write(header, sizeof(header));
+            }
         }
     } catch (...) {
         processing_active_.store(false, std::memory_order_release);

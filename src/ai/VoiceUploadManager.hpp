@@ -8,7 +8,7 @@
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable: 4324) // structure was padded due to alignment specifier
+#pragma warning(disable: 4324)
 #define AI_FORCE_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
 #define AI_FORCE_INLINE inline __attribute__((always_inline))
@@ -40,7 +40,7 @@ public:
     VoiceUploadManager(VoiceUploadManager&&) = delete;
     VoiceUploadManager& operator=(VoiceUploadManager&&) = delete;
 
-    // High-speed zero-allocation source media validation for studio-quality RVC inputs
+    // High-speed zero-allocation source media validation for studio-quality RVC inputs (.wav, .mp3, .onnx, etc.)
     [[nodiscard]] bool validate_source_media(std::string_view file_path) noexcept;
 
     // High-performance preprocessing & feature extraction pipeline (48kHz Mono PCM canonical target)

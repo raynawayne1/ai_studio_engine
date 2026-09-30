@@ -11,7 +11,7 @@
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable: 4324) // structure was padded due to alignment specifier
+#pragma warning(disable: 4324)
 #define AI_FORCE_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
 #define AI_FORCE_INLINE inline __attribute__((always_inline))
@@ -49,6 +49,9 @@ public:
     // Select the active voice profile with zero string allocation lookup
     [[nodiscard]] bool select_active_profile(std::string_view profile_id) noexcept;
 
+    // Directly import or activate a voice file (.onnx, .wav, .mp3) selected from the UI
+    [[nodiscard]] bool import_and_select_file(std::string_view file_path, VoiceUploadManager& upload_manager) noexcept;
+
     // Retrieve active profile metadata with force-inlined zero overhead
     [[nodiscard]] AI_FORCE_INLINE const VoiceProfileMetadata* get_active_profile() const noexcept {
         std::shared_lock lock(library_mutex_);
@@ -73,6 +76,9 @@ public:
 
     // Return a list of all available profile IDs
     [[nodiscard]] std::vector<std::string> get_profile_ids() const noexcept;
+
+    // Return all registered profiles for UI listing
+    [[nodiscard]] std::vector<VoiceProfileMetadata> get_all_profiles() const noexcept;
 
 private:
     std::filesystem::path storage_directory_;

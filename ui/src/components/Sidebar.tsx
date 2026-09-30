@@ -5,9 +5,17 @@ interface SidebarProps {
     activeTab: NavigationTab;
     setActiveTab: (tab: NavigationTab) => void;
     callActive: boolean;
+    activeSource?: string;
+    fps?: number;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, callActive }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+    activeTab,
+    setActiveTab,
+    callActive,
+    activeSource,
+    fps
+}) => {
     const navItems: { id: NavigationTab; label: string; icon: string }[] = [
         { id: 'dashboard', label: 'Live Studio Call', icon: '🎙️' },
         { id: 'voices', label: 'Voice Profiles & Library', icon: '🗣️' },
@@ -56,13 +64,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, callA
             </nav>
 
             <div style={{ padding: '12px', background: '#0f172a', borderRadius: '8px', border: '1px solid #1e293b' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: callActive ? '#22c55e' : '#ef4444' }} />
-                    <span style={{ fontSize: '12px', fontWeight: 600, color: '#f8fafc' }}>
-                        {callActive ? 'Call Live (Routing Active)' : 'Engine Idle'}
-                    </span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: callActive ? '#22c55e' : '#ef4444' }} />
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#f8fafc' }}>
+                            {callActive ? 'Call Live (Zero-Lag)' : 'Engine Idle'}
+                        </span>
+                    </div>
+                    {callActive && typeof fps === 'number' && fps > 0 && (
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#22c55e' }}>
+                            {fps.toFixed(0)} FPS
+                        </span>
+                    )}
                 </div>
-                <p style={{ fontSize: '10px', color: '#64748b', margin: 0 }}>C++20 Core Bridge Connected</p>
+                <p style={{ fontSize: '10px', color: '#64748b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {callActive && activeSource ? `Source: ${activeSource}` : 'C++20 Core Bridge Connected'}
+                </p>
             </div>
         </aside>
     );

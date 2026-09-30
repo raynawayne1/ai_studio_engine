@@ -23,7 +23,7 @@ bool VoicePreviewManager::load_and_verify_active_model() noexcept {
         return false;
     }
 
-    // Verify local model cache signature header (Zero-allocation file peek)
+    // Verify local model cache signature OR valid ONNX protobuf header
     try {
         std::ifstream model_file(model_path, std::ios::binary);
         if (!model_file.is_open()) [[unlikely]] {
@@ -33,10 +33,17 @@ bool VoicePreviewManager::load_and_verify_active_model() noexcept {
 
         char header_buffer[32] = {0};
         model_file.read(header_buffer, sizeof(header_buffer) - 1);
-        std::string_view header_str(header_buffer);
+        const auto bytes_read = model_file.gcount();
+        std::string_view header_str(header_buffer, static_cast<size_t>(bytes_read));
 
-        if (header_str.find("AI_STUDIO") == std::string_view::npos) [[unlikely]] {
-            std::cerr << "[Voice Preview Error] Invalid local model header signature.\n";
+        // Accept both AI_STUDIO compiled profiles and standard ONNX protobuf binary files (0x08 ir_version tag)
+        const bool is_studio_header = (header_str.find("AI_STUDIO") != std::string_view::npos);
+        const bool is_onnx_protobuf = (bytes_read >= 4 && (static_cast<uint8_t>(header_buffer[0]) == 0x08 ||
+                                       header_str.find("onnx") != std::string_view::npos ||
+                                       header_str.find(" pytorch") != std::string_view::npos));
+
+        if (!is_studio_header && !is_onnx_protobuf) [[unlikely]] {
+            std::cerr << "[Voice Preview Error] Unrecognized voice model binary format.\n";
             model_verified_.store(false, std::memory_order_release);
             return false;
         }
@@ -61,9 +68,11 @@ void VoicePreviewManager::configure_settings(const VoicePreviewConfig& config) n
 }
 
 bool VoicePreviewManager::start_preview() noexcept {
-    if (!model_verified_.load(std::memory_order_acquire)) [[unlikely]] {
-        std::cerr << "[Voice Preview Error] Cannot start preview. Model not verified.\n";
-        return false;
+    if (!model_verified_.load(std::memory_order_acquire)) {
+        if (!load_and_verify_active_model()) {
+            std::cerr << "[Voice Preview Error] Cannot start preview. Model not verified.\n";
+            return false;
+        }
     }
 
     preview_active_.store(true, std::memory_order_release);

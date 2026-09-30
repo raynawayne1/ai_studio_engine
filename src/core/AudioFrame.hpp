@@ -5,13 +5,12 @@
 
 #ifdef _MSC_VER
 #pragma warning(push)
-#pragma warning(disable: 4324) // structure was padded due to alignment specifier
+#pragma warning(disable: 4324)
 #endif
 
 namespace ai_studio::core {
 
-// alignas(32) ensures memory aligns perfectly for CPU AVX/SIMD instructions.
-// This maximizes ONNX Runtime inference speed for real-time AI models.
+// alignas(32) ensures memory aligns perfectly for CPU AVX/NEON SIMD instructions.
 struct alignas(32) AudioFrame {
     std::vector<float> samples;
     uint64_t timestamp_us;
@@ -25,7 +24,6 @@ struct alignas(32) AudioFrame {
         is_valid = false;
     }
 
-    // Delete copy/move operations to prevent accidental expensive copies during real-time streaming
     AudioFrame(const AudioFrame&) = delete;
     AudioFrame& operator=(const AudioFrame&) = delete;
     AudioFrame(AudioFrame&&) = delete;
@@ -37,7 +35,6 @@ struct alignas(32) AudioFrame {
     void reset() noexcept {
         timestamp_us = 0;
         is_valid = false;
-        // Note: We do NOT clear() or shrink_to_fit(). Memory stays reserved for zero lag.
     }
 };
 
