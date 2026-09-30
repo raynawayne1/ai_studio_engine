@@ -36,7 +36,6 @@ if(EXISTS "${OPENCV_LOCAL_DIR}/include")
     if(APPLE)
         set(OPENCV_LIBS "") # Resolved via runtime dynamic loader for Python wheel bundle
     elseif(WIN32)
-        # Automatically discover all prebuilt OpenCV MSVC import libraries (.lib)
         file(GLOB OPENCV_LIBS "${OPENCV_LOCAL_DIR}/lib/*.lib")
     else()
         set(OPENCV_LIBS "")
@@ -52,35 +51,11 @@ else()
 endif()
 
 # =========================================================================
-# DYNAMIC ADAPTIVE SOURCE GATHERING (Prevents build failure on missing modules)
+# AUTOMATIC RECURSIVE SOURCE GATHERING (Fixes Ninja .o.d Directory Generation)
 # =========================================================================
-set(CANDIDATE_SOURCES
-    src/main.cpp
-    src/hw/HardwareManager.cpp
-    src/ai/InferenceEngine.cpp
-    src/ai/ModelManager.cpp
-    src/ai/CloudSyncManager.cpp
-    src/ai/VoiceUploadManager.cpp
-    src/ai/VoiceLibraryManager.cpp
-    src/ai/VoicePreviewManager.cpp
-    src/ai/VoiceInferenceEngine.cpp
-    src/ai/FaceSwapEngine.cpp
-    src/ai/BodyTrackerEngine.cpp
-    src/ai/BackgroundMattingEngine.cpp
-    src/audio/AudioCaptureEngine.cpp
-    src/audio/VirtualRoutingManager.cpp
-    src/audio/ipc/EngineIPCServer.cpp 
-    src/video/VirtualCameraManager.cpp
+file(GLOB_RECURSE VALID_SOURCES CONFIGURE_DEPENDS
+    "src/*.cpp"
 )
-
-set(VALID_SOURCES "")
-foreach(src_file ${CANDIDATE_SOURCES})
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${src_file}")
-        list(APPEND VALID_SOURCES ${src_file})
-    else()
-        message(STATUS "[AIStudioEngine Optimization] Note: Pending module file not found yet (skipped): ${src_file}")
-    endif()
-endforeach()
 
 if(NOT VALID_SOURCES)
     message(FATAL_ERROR "No source files found to compile!")
@@ -113,7 +88,7 @@ if(APPLE)
 endif()
 
 # =========================================================================
-# MAXIMUM HARDWARE-NATIVE COMPILER OPTIMIZATIONS FOR ZERO LAG
+# MAXIMUM HARDWARE-NATIVE COMPILER OPTIMIZATIONS FOR ZERO LAG (<15ms)
 # =========================================================================
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX /O2 /fp:fast /Oi /Gy /DNDEBUG)
