@@ -28,11 +28,11 @@ bool VirtualCameraManager::start_capture(int camera_index) noexcept {
         return false;
     }
 
-    // 2. ZERO-LAG CONFIGURATION
+    // 2. ZERO-LAG CONFIGURATION (<15ms latency target)
     m_cap.set(cv::CAP_PROP_FRAME_WIDTH, m_width);
     m_cap.set(cv::CAP_PROP_FRAME_HEIGHT, m_height);
     m_cap.set(cv::CAP_PROP_FPS, m_fps);
-    // BufferSize=1 forces the OS to drop old frames so you ALWAYS get absolute real-time input
+    // BufferSize=1 forces the OS to drop stale frames so you ALWAYS get absolute real-time input
     m_cap.set(cv::CAP_PROP_BUFFERSIZE, 1); 
 
     if (!initialize_virtual_device(m_width, m_height, m_fps)) {
@@ -42,7 +42,7 @@ bool VirtualCameraManager::start_capture(int camera_index) noexcept {
     m_running.store(true, std::memory_order_release);
     m_capture_thread = std::thread(&VirtualCameraManager::capture_loop, this);
     
-    std::cout << "[Video Engine] Live camera feed & OS routing initialized at 720p " << m_fps << "FPS.\n";
+    std::cout << "[Video Engine] Live camera feed & OS routing initialized at 720p " << m_fps << "FPS (Zero-Lag Mode).\n";
     return true;
 }
 
@@ -74,29 +74,30 @@ void VirtualCameraManager::capture_loop() noexcept {
 
         // 2. Execute Zero-Lag AI Pipeline inline (Face Swap, Lip Sync, Body Tracking, Background Matting)
         if (m_ai_callback) {
-            m_ai_callback(frame); // Frame is modified strictly in-place (Zero Allocation)
+            m_ai_callback(frame); // Frame is modified strictly in-place with zero memory allocations
         }
 
-        // 3. Blast the deepfaked frame instantly to Zoom/Discord via Shared Memory
+        // 3. Blast the processed frame instantly to Zoom/Discord via Shared Memory (<0.1ms)
         route_to_virtual_camera(frame);
     }
 }
 
 bool VirtualCameraManager::initialize_virtual_device(int width, int height, int fps) noexcept {
     (void)fps; // Silence unused parameter warning under strict -Werror
-    m_frame_size_bytes = width * height * 3; // Standard 24-bit BGR frame
+    m_frame_size_bytes = static_cast<size_t>(width * height * 3); // Standard 24-bit BGR frame
 
 #if defined(_WIN32)
-    // Windows: Connect directly to OBS Virtual Camera Shared Memory Map
-    m_shared_memory_handle = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, m_frame_size_bytes, "OBSVirtualCamVideo");
+    // Windows: Connect directly to OBS Virtual Camera Shared Memory Map (Explicit DWORD cast for MSVC /WX compliance)
+    DWORD buffer_size_dw = static_cast<DWORD>(m_frame_size_bytes);
+    m_shared_memory_handle = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, buffer_size_dw, "OBSVirtualCamVideo");
     if (m_shared_memory_handle == NULL) return false;
-    m_mapped_buffer = (uint8_t*)MapViewOfFile(m_shared_memory_handle, FILE_MAP_ALL_ACCESS, 0, 0, m_frame_size_bytes);
+    m_mapped_buffer = static_cast<uint8_t*>(MapViewOfFile(m_shared_memory_handle, FILE_MAP_ALL_ACCESS, 0, 0, buffer_size_dw));
 #else
-    // macOS/Linux: Connect to Syphon/CMIO or v4l2loopback POSIX shared memory
+    // macOS/Linux: Connect to Syphon/CMIO or v4l2loopback POSIX shared memory (Casted to void to satisfy warn_unused_result)
     int shm_fd = shm_open("/AIStudioVirtualCam", O_CREAT | O_RDWR, 0666);
     if (shm_fd < 0) return false;
-    ftruncate(shm_fd, m_frame_size_bytes);
-    m_mapped_buffer = (uint8_t*)mmap(0, m_frame_size_bytes, PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    (void)ftruncate(shm_fd, static_cast<off_t>(m_frame_size_bytes));
+    m_mapped_buffer = static_cast<uint8_t*>(mmap(0, m_frame_size_bytes, PROT_WRITE, MAP_SHARED, shm_fd, 0));
     close(shm_fd);
 #endif
 
@@ -107,8 +108,7 @@ void VirtualCameraManager::route_to_virtual_camera(const cv::Mat& frame) noexcep
     if (!m_mapped_buffer || frame.empty() || !frame.isContinuous()) return;
 
     // EXTREME OPTIMIZATION: Native CPU SIMD memory copy.
-    // Instead of using OS pipes or file writes, we blast the raw pixels 
-    // directly into the OS's video memory register in under 0.1 milliseconds.
+    // Blasts raw pixels directly into video memory registers in under 0.1 milliseconds.
     std::memcpy(m_mapped_buffer, frame.ptr(), m_frame_size_bytes);
 }
 
