@@ -20,28 +20,40 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Setup Node & Python
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-    - uses: actions/setup-python@v5
+    - name: Setup Python (macOS Only)
+      if: matrix.os == 'macos-14'
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
     # ==========================================
-    # 🐧 LINUX (UBUNTU) DEPENDENCY BOOTSTRAP
+    # 🐧 LINUX (UBUNTU) ULTRA-FAST BOOTSTRAP (~10s)
     # ==========================================
     - name: Provision Linux Dependencies
       if: matrix.os == 'ubuntu-24.04'
       run: |
-        sudo apt update
-        sudo apt install -y build-essential cmake ninja-build libopencv-dev
-        python3 -m pip install opencv-python==4.9.0.80 "numpy<2"
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          ninja-build \
+          libopencv-core-dev \
+          libopencv-imgproc-dev \
+          libopencv-imgcodecs-dev \
+          libopencv-videoio-dev
         
-        mkdir -p third_party/opencv/include
-        ln -s /usr/include/opencv4/opencv2 third_party/opencv/include/opencv2
+        mkdir -p third_party/opencv/include/opencv2
+        cp -r /usr/include/opencv4/opencv2/* third_party/opencv/include/opencv2/
         
-        curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-linux-x64-1.16.3.tgz -o onnxruntime.tgz
+        cat << 'EOF' > third_party/opencv/include/opencv2/opencv.hpp
+        #ifndef OPENCV_ALL_HPP
+        #define OPENCV_ALL_HPP
+        #include <opencv2/core.hpp>
+        #include <opencv2/imgproc.hpp>
+        #include <opencv2/imgcodecs.hpp>
+        #include <opencv2/videoio.hpp>
+        #endif
+        EOF
+        
+        curl -sSL https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-linux-x64-1.16.3.tgz -o onnxruntime.tgz
         mkdir -p third_party/onnxruntime third_party/temp_ort
         tar -xzf onnxruntime.tgz -C third_party/temp_ort
         cp -r third_party/temp_ort/onnxruntime-linux-x64-1.16.3/* third_party/onnxruntime/
@@ -115,20 +127,19 @@ jobs:
         python3 prov_ort.py
 
     # ==========================================
-    # 🪟 WINDOWS DEPENDENCY BOOTSTRAP (MSVC C++ SDK)
+    # 🪟 WINDOWS DEPENDENCY BOOTSTRAP (FAST CURL)
     # ==========================================
     - name: Provision Windows Dependencies
       if: matrix.os == 'windows-2022'
       run: |
-        python -m pip install "numpy<2"
+        $ProgressPreference = 'SilentlyContinue'
         
-        $opencvUrl = "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe"
-        Invoke-WebRequest -Uri $opencvUrl -OutFile "opencv_installer.exe"
-        & "C:\Program Files\7-Zip\7z.exe" x opencv_installer.exe -o"third_party\opencv_extracted" -y
+        curl.exe -sSL "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -o "opencv_installer.exe"
+        & "C:\Program Files\7-Zip\7z.exe" x opencv_installer.exe -o"third_party\opencv_extracted" -y > $null
         
-        New-Item -ItemType Directory -Force -Path "third_party\opencv\include"
-        New-Item -ItemType Directory -Force -Path "third_party\opencv\lib"
-        New-Item -ItemType Directory -Force -Path "third_party\opencv\bin"
+        New-Item -ItemType Directory -Force -Path "third_party\opencv\include" | Out-Null
+        New-Item -ItemType Directory -Force -Path "third_party\opencv\lib" | Out-Null
+        New-Item -ItemType Directory -Force -Path "third_party\opencv\bin" | Out-Null
         
         Copy-Item -Path "third_party\opencv_extracted\opencv\build\include\*" -Destination "third_party\opencv\include" -Recurse -Force
         Copy-Item -Path "third_party\opencv_extracted\opencv\build\x64\vc16\lib\*" -Destination "third_party\opencv\lib" -Force
@@ -136,10 +147,9 @@ jobs:
         
         Remove-Item -Path "opencv_installer.exe", "third_party\opencv_extracted" -Recurse -Force
 
-        $ortUrl = "https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-win-x64-1.16.3.zip"
-        Invoke-WebRequest -Uri $ortUrl -OutFile "onnxruntime.zip"
+        curl.exe -sSL "https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-win-x64-1.16.3.zip" -o "onnxruntime.zip"
         Expand-Archive -Path "onnxruntime.zip" -DestinationPath "third_party\temp_ort" -Force
-        New-Item -ItemType Directory -Force -Path "third_party\onnxruntime"
+        New-Item -ItemType Directory -Force -Path "third_party\onnxruntime" | Out-Null
         $extracted = Get-ChildItem -Path "third_party\temp_ort\onnxruntime-win-x64-*" | Select-Object -First 1
         Move-Item -Path "$($extracted.FullName)\*" -Destination "third_party\onnxruntime\" -Force
         Remove-Item -Path "onnxruntime.zip", "third_party\temp_ort" -Recurse -Force

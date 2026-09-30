@@ -36,17 +36,15 @@ if(APPLE)
 elseif(WIN32)
     set(OPENCV_LOCAL_DIR "${THIRD_PARTY_DIR}/opencv")
     set(OPENCV_INCLUDE_DIRS "${OPENCV_LOCAL_DIR}/include")
-    # Link Release opencv_world490.lib specifically to avoid debug/release symbol mismatch
     if(EXISTS "${OPENCV_LOCAL_DIR}/lib/opencv_world490.lib")
         set(OPENCV_LIBS "${OPENCV_LOCAL_DIR}/lib/opencv_world490.lib")
     else()
         file(GLOB OPENCV_LIBS "${OPENCV_LOCAL_DIR}/lib/*.lib")
     endif()
 else()
-    # Linux (Ubuntu) - Use libopencv-dev system libraries installed in build.yml
-    find_package(OpenCV REQUIRED)
-    set(OPENCV_INCLUDE_DIRS "${THIRD_PARTY_DIR}/opencv/include" ${OpenCV_INCLUDE_DIRS})
-    set(OPENCV_LIBS ${OpenCV_LIBS})
+    # Linux (Ubuntu) - Link only the 4 fast core OpenCV libraries
+    set(OPENCV_INCLUDE_DIRS "${THIRD_PARTY_DIR}/opencv/include" "/usr/include/opencv4")
+    set(OPENCV_LIBS opencv_core opencv_imgproc opencv_imgcodecs opencv_videoio)
 endif()
 
 # =========================================================================
@@ -77,6 +75,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 if(WIN32)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
     
     # Automatically copy ONNX Runtime DLL next to executable
@@ -113,7 +112,7 @@ endif()
 # MAXIMUM HARDWARE-NATIVE COMPILER OPTIMIZATIONS FOR ZERO LAG (<15ms)
 # =========================================================================
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX /O2 /fp:fast /Oi /Gy /DNDEBUG)
+    target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX /O2 /fp:fast /Oi /Gy /DNDEBUG /D_CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(${PROJECT_NAME} PRIVATE 
         -Wall 
