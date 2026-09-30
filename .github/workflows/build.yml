@@ -145,9 +145,10 @@ jobs:
     - name: Run Smoke Test (Windows)
       if: matrix.os == 'windows-2022'
       run: |
-        cp third_party/onnxruntime/lib/onnxruntime.dll build/
-        ./build/AIStudioEngine.exe --smoke-test
-      shell: bash
+        # Inject the third_party SDK library paths directly into the Windows runtime environment
+        $env:PATH = "${{ github.workspace }}\third_party\onnxruntime\lib;" + $env:PATH
+        .\build\AIStudioEngine.exe --smoke-test
+      shell: pwsh
 
     - name: Run Smoke Test (Unix)
       if: matrix.os != 'windows-2022'
