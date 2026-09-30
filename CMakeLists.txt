@@ -74,11 +74,20 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
     
-    # Automatically copy onnxruntime.dll right next to AIStudioEngine.exe for zero-friction Windows execution
+    # Automatically copy ONNX Runtime DLL next to executable
     if(EXISTS "${ONNXRUNTIME_LOCAL_DIR}/bin/onnxruntime.dll")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ONNXRUNTIME_LOCAL_DIR}/bin/onnxruntime.dll"
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        )
+    endif()
+
+    # Automatically copy all OpenCV DLLs next to executable
+    if(EXISTS "${OPENCV_LOCAL_DIR}/bin")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${OPENCV_LOCAL_DIR}/bin"
             $<TARGET_FILE_DIR:${PROJECT_NAME}>
         )
     endif()
