@@ -144,7 +144,9 @@ jobs:
 
     - name: Run Smoke Test (Windows)
       if: matrix.os == 'windows-2022'
-      run: ./build/AIStudioEngine.exe --smoke-test
+      run: |
+        cp third_party/onnxruntime/lib/onnxruntime.dll build/
+        ./build/AIStudioEngine.exe --smoke-test
       shell: bash
 
     - name: Run Smoke Test (Unix)
