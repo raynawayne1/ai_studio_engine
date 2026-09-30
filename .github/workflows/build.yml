@@ -122,11 +122,8 @@ jobs:
       run: |
         python -m pip install "numpy<2"
         
-        # 1. Download official OpenCV 4.9.0 Windows self-extracting installer
         $opencvUrl = "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe"
         Invoke-WebRequest -Uri $opencvUrl -OutFile "opencv_installer.exe"
-        
-        # 2. Extract using runner's built-in 7-Zip utility
         & "C:\Program Files\7-Zip\7z.exe" x opencv_installer.exe -o"third_party\opencv_extracted" -y
         
         New-Item -ItemType Directory -Force -Path "third_party\opencv\include"
@@ -139,7 +136,6 @@ jobs:
         
         Remove-Item -Path "opencv_installer.exe", "third_party\opencv_extracted" -Recurse -Force
 
-        # 3. Download ONNX Runtime v1.16.3 for Windows MSVC
         $ortUrl = "https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-win-x64-1.16.3.zip"
         Invoke-WebRequest -Uri $ortUrl -OutFile "onnxruntime.zip"
         Expand-Archive -Path "onnxruntime.zip" -DestinationPath "third_party\temp_ort" -Force
@@ -170,7 +166,7 @@ jobs:
     - name: Run Smoke Test (Windows)
       if: matrix.os == 'windows-2022'
       run: |
-        $env:PATH = "${{ github.workspace }}\third_party\onnxruntime\lib;" + $env:PATH
+        $env:PATH = "${{ github.workspace }}\third_party\onnxruntime\bin;" + $env:PATH
         $env:PATH = "${{ github.workspace }}\third_party\opencv\bin;" + $env:PATH
         .\build\AIStudioEngine.exe --smoke-test
       shell: pwsh
