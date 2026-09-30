@@ -93,10 +93,13 @@ bool VirtualCameraManager::initialize_virtual_device(int width, int height, int 
     if (m_shared_memory_handle == NULL) return false;
     m_mapped_buffer = static_cast<uint8_t*>(MapViewOfFile(m_shared_memory_handle, FILE_MAP_ALL_ACCESS, 0, 0, buffer_size_dw));
 #else
-    // macOS/Linux: Connect to Syphon/CMIO or v4l2loopback POSIX shared memory (Casted to void to satisfy warn_unused_result)
+    // macOS/Linux: Connect to Syphon/CMIO or v4l2loopback POSIX shared memory (Explicitly handle ftruncate return value)
     int shm_fd = shm_open("/AIStudioVirtualCam", O_CREAT | O_RDWR, 0666);
     if (shm_fd < 0) return false;
-    (void)ftruncate(shm_fd, static_cast<off_t>(m_frame_size_bytes));
+    if (ftruncate(shm_fd, static_cast<off_t>(m_frame_size_bytes)) < 0) {
+        close(shm_fd);
+        return false;
+    }
     m_mapped_buffer = static_cast<uint8_t*>(mmap(0, m_frame_size_bytes, PROT_WRITE, MAP_SHARED, shm_fd, 0));
     close(shm_fd);
 #endif
