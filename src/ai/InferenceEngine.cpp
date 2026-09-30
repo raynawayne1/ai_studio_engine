@@ -97,7 +97,7 @@ std::unique_ptr<Ort::Session> InferenceEngine::create_session(const std::string&
             cuda_options["arena_extend_strategy"] = "kNextPowerOfTwo";
             session_options.AppendExecutionProvider("CUDA", cuda_options);
         }
-    } catch (const Ort::Exception& e) {
+    } catch (const Ort::Exception&) {
         // [SAFETY NET]: If the user's computer doesn't have the GPU drivers installed,
         // or if GitHub Actions CI is running without a GPU, ONNX throws an exception.
         // We catch it silently and fall back to our highly-vectorized multi-threaded CPU pool.
