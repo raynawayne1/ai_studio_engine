@@ -166,8 +166,11 @@ jobs:
     - name: Run Smoke Test (Windows)
       if: matrix.os == 'windows-2022'
       run: |
-        $env:PATH = "${{ github.workspace }}\third_party\onnxruntime\bin;" + $env:PATH
-        $env:PATH = "${{ github.workspace }}\third_party\opencv\bin;" + $env:PATH
+        # Explicitly copy all required DLLs right next to the executable in build/
+        Copy-Item "third_party\onnxruntime\bin\onnxruntime.dll" "build\" -Force
+        Copy-Item "third_party\opencv\bin\*" "build\" -Force
+        
+        # Execute smoke test
         .\build\AIStudioEngine.exe --smoke-test
       shell: pwsh
 
