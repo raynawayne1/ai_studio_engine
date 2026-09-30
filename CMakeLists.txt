@@ -29,29 +29,23 @@ else()
     set(ONNXRUNTIME_LIBRARY "onnxruntime")
 endif()
 
-# OpenCV Local vs System Paths
-set(OPENCV_LOCAL_DIR "${THIRD_PARTY_DIR}/opencv")
-if(EXISTS "${OPENCV_LOCAL_DIR}/include")
+# OpenCV Platform-Specific Resolution
+if(APPLE)
+    set(OPENCV_INCLUDE_DIRS "${THIRD_PARTY_DIR}/opencv/include")
+    set(OPENCV_LIBS "") # Resolved via runtime dynamic loader for Python wheel bundle
+elseif(WIN32)
+    set(OPENCV_LOCAL_DIR "${THIRD_PARTY_DIR}/opencv")
     set(OPENCV_INCLUDE_DIRS "${OPENCV_LOCAL_DIR}/include")
-    if(APPLE)
-        set(OPENCV_LIBS "") # Resolved via runtime dynamic loader for Python wheel bundle
-    elseif(WIN32)
-        file(GLOB OPENCV_LIBS "${OPENCV_LOCAL_DIR}/lib/*.lib")
-    else()
-        set(OPENCV_LIBS "")
-    endif()
+    file(GLOB OPENCV_LIBS "${OPENCV_LOCAL_DIR}/lib/*.lib")
 else()
-    find_package(OpenCV QUIET)
-    if(OpenCV_FOUND)
-        set(OPENCV_INCLUDE_DIRS ${OpenCV_INCLUDE_DIRS})
-        set(OPENCV_LIBS ${OpenCV_LIBS})
-    else()
-        message(FATAL_ERROR "OpenCV development headers not found locally or in system paths.")
-    endif()
+    # Linux (Ubuntu) - Explicitly link system OpenCV components
+    find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio photo)
+    set(OPENCV_INCLUDE_DIRS ${OpenCV_INCLUDE_DIRS})
+    set(OPENCV_LIBS ${OpenCV_LIBS})
 endif()
 
 # =========================================================================
-# AUTOMATIC RECURSIVE SOURCE GATHERING (Fixes Ninja .o.d Directory Generation)
+# AUTOMATIC RECURSIVE SOURCE GATHERING
 # =========================================================================
 file(GLOB_RECURSE VALID_SOURCES CONFIGURE_DEPENDS
     "src/*.cpp"
@@ -82,7 +76,6 @@ if(WIN32)
 endif()
 
 if(APPLE)
-    # Link native macOS hardware acceleration frameworks & enable dynamic symbol lookup for Python OpenCV wheel bundle
     target_link_libraries(${PROJECT_NAME} PRIVATE "-framework CoreML" "-framework Metal" "-framework Foundation")
     target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-undefined,dynamic_lookup")
 endif()
@@ -98,8 +91,6 @@ else()
         -Wextra 
         -Werror 
         -pedantic 
-        -Wno-c11-extensions 
-        -Wno-deprecated-anon-enum-enum-conversion
         -O3 
         -ffast-math 
         -march=native 
@@ -109,6 +100,13 @@ else()
         -fomit-frame-pointer 
         -DNDEBUG
     )
+    # Apply Clang-specific flags only when using Clang to prevent GCC notes under -Werror
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(${PROJECT_NAME} PRIVATE 
+            -Wno-c11-extensions 
+            -Wno-deprecated-anon-enum-enum-conversion
+        )
+    endif()
 endif()
 
 # Enable Interprocedural Optimization (LTO) for cross-module function inlining and max performance
