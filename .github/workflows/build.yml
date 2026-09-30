@@ -115,51 +115,34 @@ jobs:
         python3 prov_ort.py
 
     # ==========================================
-    # 🪟 WINDOWS DEPENDENCY BOOTSTRAP
+    # 🪟 WINDOWS DEPENDENCY BOOTSTRAP (MSVC C++ SDK)
     # ==========================================
     - name: Provision Windows Dependencies
       if: matrix.os == 'windows-2022'
       run: |
-        python -m pip install opencv-python==4.9.0.80 "numpy<2"
+        python -m pip install "numpy<2"
         
-        @"
-        import os, urllib.request, zipfile, shutil, ssl, cv2
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
-        t_inc = 'third_party/opencv/include/opencv2'
-        t_lib = 'third_party/opencv/lib'
-        os.makedirs(t_inc, exist_ok=True)
-        os.makedirs(t_lib, exist_ok=True)
+        # 1. Download official OpenCV 4.9.0 Windows self-extracting installer
+        $opencvUrl = "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe"
+        Invoke-WebRequest -Uri $opencvUrl -OutFile "opencv_installer.exe"
         
-        req = urllib.request.Request('https://github.com/opencv/opencv/archive/refs/tags/4.9.0.zip', headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, context=ctx) as resp, open('cv.zip', 'wb') as f:
-            shutil.copyfileobj(resp, f)
-        with zipfile.ZipFile('cv.zip', 'r') as z:
-            z.extractall('tmp_cv')
-            
-        shutil.copytree('tmp_cv/opencv-4.9.0/include/opencv2', t_inc, dirs_exist_ok=True)
-        for mod in os.listdir('tmp_cv/opencv-4.9.0/modules'):
-            m_inc = os.path.join('tmp_cv/opencv-4.9.0/modules', mod, 'include', 'opencv2')
-            if os.path.exists(m_inc):
-                shutil.copytree(m_inc, t_inc, dirs_exist_ok=True)
-                
-        with open(os.path.join(t_inc, 'opencv_modules.hpp'), 'w') as f:
-            f.write("#ifndef OPENCV_MODULES_HPP\n#define OPENCV_MODULES_HPP\n#define HAVE_OPENCV_CORE 1\n#define HAVE_OPENCV_IMGPROC 1\n#define HAVE_OPENCV_VIDEOIO 1\n#define HAVE_OPENCV_HIGHGUI 1\n#define HAVE_OPENCV_VIDEO 1\n#define HAVE_OPENCV_OBJDETECT 1\n#define HAVE_OPENCV_DNN 1\n#define HAVE_OPENCV_PHOTO 1\n#define HAVE_OPENCV_CALIB3D 1\n#define HAVE_OPENCV_FEATURES2D 1\n#define HAVE_OPENCV_ML 1\n#define HAVE_OPENCV_FLANN 1\n#define HAVE_OPENCV_STITCHING 1\n#endif\n")
-            
-        shutil.rmtree('tmp_cv')
-        os.remove('cv.zip')
+        # 2. Extract using runner's built-in 7-Zip utility
+        & "C:\Program Files\7-Zip\7z.exe" x opencv_installer.exe -o"third_party\opencv_extracted" -y
         
-        cv2_p = os.path.dirname(cv2.__file__)
-        for f in os.listdir(cv2_p):
-            if f.endswith(('.so', '.dylib', '.pyd', '.dll')):
-                shutil.copy2(os.path.join(cv2_p, f), t_lib)
-        print('Windows OpenCV provisioned')
-        "@ > prov_cv.py
+        New-Item -ItemType Directory -Force -Path "third_party\opencv\include"
+        New-Item -ItemType Directory -Force -Path "third_party\opencv\lib"
+        New-Item -ItemType Directory -Force -Path "third_party\opencv\bin"
         
-        python prov_cv.py
+        Copy-Item -Path "third_party\opencv_extracted\opencv\build\include\*" -Destination "third_party\opencv\include" -Recurse -Force
+        Copy-Item -Path "third_party\opencv_extracted\opencv\build\x64\vc16\lib\*" -Destination "third_party\opencv\lib" -Force
+        Copy-Item -Path "third_party\opencv_extracted\opencv\build\x64\vc16\bin\*" -Destination "third_party\opencv\bin" -Force
         
-        Invoke-WebRequest -Uri 'https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-win-x64-1.16.3.zip' -OutFile 'onnxruntime.zip'
-        Expand-Archive -Path 'onnxruntime.zip' -DestinationPath 'third_party\temp_ort' -Force
+        Remove-Item -Path "opencv_installer.exe", "third_party\opencv_extracted" -Recurse -Force
+
+        # 3. Download ONNX Runtime v1.16.3 for Windows MSVC
+        $ortUrl = "https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-win-x64-1.16.3.zip"
+        Invoke-WebRequest -Uri $ortUrl -OutFile "onnxruntime.zip"
+        Expand-Archive -Path "onnxruntime.zip" -DestinationPath "third_party\temp_ort" -Force
         New-Item -ItemType Directory -Force -Path "third_party\onnxruntime"
         $extracted = Get-ChildItem -Path "third_party\temp_ort\onnxruntime-win-x64-*" | Select-Object -First 1
         Move-Item -Path "$($extracted.FullName)\*" -Destination "third_party\onnxruntime\" -Force
@@ -169,8 +152,6 @@ jobs:
     # ==========================================
     # 🔨 BUILD & SMOKE TEST
     # ==========================================
-    
-    # NEW STEP: Activate Microsoft Visual C++ environment for Windows
     - name: Enable MSVC on Windows
       if: matrix.os == 'windows-2022'
       uses: ilammy/msvc-dev-cmd@v1
@@ -179,7 +160,6 @@ jobs:
       if: matrix.os != 'windows-2022'
       run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-    # NEW STEP: Force CMake to use cl.exe (MSVC) instead of GCC on Windows
     - name: Configure CMake (Windows)
       if: matrix.os == 'windows-2022'
       run: cmake -B build -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release
@@ -191,7 +171,7 @@ jobs:
       if: matrix.os == 'windows-2022'
       run: |
         $env:PATH = "${{ github.workspace }}\third_party\onnxruntime\lib;" + $env:PATH
-        $env:PATH = "${{ github.workspace }}\third_party\opencv\lib;" + $env:PATH
+        $env:PATH = "${{ github.workspace }}\third_party\opencv\bin;" + $env:PATH
         .\build\AIStudioEngine.exe --smoke-test
       shell: pwsh
 
