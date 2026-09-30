@@ -166,9 +166,10 @@ jobs:
     - name: Run Smoke Test (Windows)
       if: matrix.os == 'windows-2022'
       run: |
-        # Explicitly copy all required DLLs right next to the executable in build/
-        Copy-Item "third_party\onnxruntime\bin\onnxruntime.dll" "build\" -Force
-        Copy-Item "third_party\opencv\bin\*" "build\" -Force
+        # BULLETPROOF DLL RESOLUTION: Recursively find ALL .dll files in third_party
+        # and forcefully copy them right next to the executable. This guarantees zero-lag
+        # loading and completely bypasses Windows PATH environment variables.
+        Get-ChildItem -Path "third_party" -Filter "*.dll" -Recurse | Copy-Item -Destination "build\" -Force
         
         # Execute smoke test
         .\build\AIStudioEngine.exe --smoke-test
