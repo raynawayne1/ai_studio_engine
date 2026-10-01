@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <iostream>
 #include "../core/AudioFramePool.hpp"
 
 #if defined(_MSC_VER)
@@ -45,7 +46,12 @@ public:
             if (abs_v > peak) peak = abs_v;
         }
         last_peak_level_.store(peak, std::memory_order_relaxed);
-        routed_frames_.fetch_add(1, std::memory_order_relaxed);
+        const uint64_t total = routed_frames_.fetch_add(1, std::memory_order_relaxed) + 1;
+
+        if (total == 1 || total % 300 == 0) {
+            std::cout << "[DEBUG][src/audio/VirtualRoutingManager.hpp::route_audio_frame] Routed 48kHz Virtual Mic Frame #"
+                      << total << " (" << count << " samples | Peak=" << peak << ")\n";
+        }
         return true;
     }
 

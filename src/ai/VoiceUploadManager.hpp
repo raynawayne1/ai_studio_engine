@@ -26,6 +26,11 @@ struct VoiceProfileMetadata {
     uint32_t sample_rate{48000};
     uint32_t channels{1};
     uint64_t duration_ms{0};
+    // Cloned Voice Acoustic Fingerprint (extracted from user's pre-cloned voice file)
+    float fundamental_bias_semitones{0.0f};
+    float formant_f1_gain{1.0f};
+    float formant_f2_gain{1.0f};
+    float warmth_saturation{0.18f};
     bool is_validated{false};
 };
 
@@ -34,19 +39,14 @@ public:
     explicit VoiceUploadManager(std::filesystem::path storage_directory) noexcept;
     ~VoiceUploadManager() noexcept = default;
 
-    // Prevent copying and moving
     VoiceUploadManager(const VoiceUploadManager&) = delete;
     VoiceUploadManager& operator=(const VoiceUploadManager&) = delete;
     VoiceUploadManager(VoiceUploadManager&&) = delete;
     VoiceUploadManager& operator=(VoiceUploadManager&&) = delete;
 
-    // High-speed zero-allocation source media validation for studio-quality RVC inputs (.wav, .mp3, .onnx, etc.)
     [[nodiscard]] bool validate_source_media(std::string_view file_path) noexcept;
-
-    // High-performance preprocessing & feature extraction pipeline (48kHz Mono PCM canonical target)
     [[nodiscard]] bool preprocess_voice_source(std::string_view profile_id, std::string_view display_name) noexcept;
 
-    // Force-inlined profile metadata retrieval with zero function call overhead
     [[nodiscard]] AI_FORCE_INLINE const VoiceProfileMetadata* get_profile_metadata(std::string_view profile_id) const noexcept {
         if (current_metadata_.profile_id == profile_id) [[likely]] {
             return &current_metadata_;
@@ -54,7 +54,6 @@ public:
         return nullptr;
     }
 
-    // Force-inlined atomic processing state check
     [[nodiscard]] AI_FORCE_INLINE bool is_processing() const noexcept {
         return processing_active_.load(std::memory_order_relaxed);
     }

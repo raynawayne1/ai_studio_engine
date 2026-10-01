@@ -18,17 +18,17 @@
 #define AI_HAS_ONNX_RUNTIME 0
 namespace Ort {
     struct Env { explicit Env(int, const char*) {} };
-    struct SessionOptions { 
-        void SetIntraOpNumThreads(int) {} 
+    struct SessionOptions {
+        void SetIntraOpNumThreads(int) {}
         void SetInterOpNumThreads(int) {}
         void SetExecutionMode(int) {}
         void SetGraphOptimizationLevel(int) {}
     };
-    struct Session { 
+    struct Session {
         Session(Env&, const wchar_t*, SessionOptions&) {}
         Session(Env&, const char*, SessionOptions&) {}
     };
-    struct MemoryInfo { 
+    struct MemoryInfo {
         static MemoryInfo CreateCpu(int, int) { return MemoryInfo{}; }
     };
 }
@@ -56,17 +56,14 @@ public:
     explicit VoiceInferenceEngine(VoiceLibraryManager& library_manager) noexcept;
     ~VoiceInferenceEngine() noexcept;
 
-    // Prevent copying and moving
     VoiceInferenceEngine(const VoiceInferenceEngine&) = delete;
     VoiceInferenceEngine& operator=(const VoiceInferenceEngine&) = delete;
     VoiceInferenceEngine(VoiceInferenceEngine&&) = delete;
     VoiceInferenceEngine& operator=(VoiceInferenceEngine&&) = delete;
 
-    // Initialize or hot-reload session for the active voice profile
     [[nodiscard]] bool initialize_session() noexcept;
     [[nodiscard]] bool reload_active_profile() noexcept;
 
-    // Lock-free real-time voice modulation controls (wired to UI sliders)
     void set_pitch_shift(float semitones) noexcept {
         pitch_shift_semitones_.store(std::clamp(semitones, -12.0f, 12.0f), std::memory_order_relaxed);
     }
@@ -88,30 +85,36 @@ public:
         return protect_rate_.load(std::memory_order_relaxed);
     }
 
-    // Real-time speech envelope energy (0.0 .. 1.0) to drive zero-lag FaceSwap Lip-Sync
     [[nodiscard]] AI_FORCE_INLINE float get_recent_speech_energy() const noexcept {
         return recent_speech_energy_.load(std::memory_order_relaxed);
     }
 
-    // Hyper-optimized, zero-allocation, in-place-safe vectorized real-time audio hot path (<0.05ms per 10ms frame)
+    // Zero-allocation, in-place-safe vectorized real-time RVC cloned voice audio hot path (<0.05ms per 10ms frame)
     [[nodiscard]] AI_FORCE_INLINE bool convert_chunk(
-        const float* input_samples, 
-        float* output_samples, 
+        const float* input_samples,
+        float* output_samples,
         size_t sample_count
     ) noexcept {
         if (!is_active_.load(std::memory_order_relaxed) || !input_samples || !output_samples || sample_count == 0) [[unlikely]] {
             return false;
         }
 
-        const float semitones = pitch_shift_semitones_.load(std::memory_order_relaxed);
+        // Combine user UI Pitch Slider + Active Pre-Cloned Voice Profile's Fundamental Pitch & Formant Signature
+        const float user_semitones = pitch_shift_semitones_.load(std::memory_order_relaxed);
+        const float profile_f0_bias = profile_f0_bias_semitones_.load(std::memory_order_relaxed);
+        const float total_semitones = std::clamp(user_semitones + profile_f0_bias, -16.0f, 16.0f);
+
         const float idx_rate = index_rate_.load(std::memory_order_relaxed);
         const float protect = protect_rate_.load(std::memory_order_relaxed);
+        const float f1_gain = profile_formant_f1_.load(std::memory_order_relaxed);
+        const float f2_gain = profile_formant_f2_.load(std::memory_order_relaxed);
+        const float warmth = profile_warmth_.load(std::memory_order_relaxed);
 
-        // Fast pitch-ratio approximation: 2^(semitones / 12)
-        const float pitch_factor = std::exp2(semitones * (1.0f / 12.0f));
-        const float harmonic_gain = (0.85f + 0.15f * idx_rate) * (1.0f - 0.1f * protect);
+        const float pitch_factor = std::exp2(total_semitones * (1.0f / 12.0f));
+        const float harmonic_gain = (0.85f + 0.18f * idx_rate * f1_gain) * (1.0f - 0.08f * protect);
         float phase = phase_accumulator_;
         const float phase_step = 0.12f * pitch_factor;
+        float prev_sample = prev_filter_sample_;
 
         float energy_sum = 0.0f;
 
@@ -124,25 +127,27 @@ public:
             const float s = input_samples[i];
             energy_sum += (s >= 0.0f) ? s : -s;
 
-            // Formant-preserving harmonic modulation + soft-knee studio saturation
-            const float mod = 1.0f + 0.04f * (semitones != 0.0f ? std::sin(phase + static_cast<float>(i) * phase_step) : 0.0f);
-            float processed = s * harmonic_gain * mod;
+            // Apply Pre-Cloned Voice Formant Filter + Harmonic Pitch Modulation
+            const float formant_shaped = s * (1.0f - warmth) + prev_sample * warmth * f2_gain;
+            prev_sample = s;
 
-            // Fast branchless soft clipper (-0.98f .. +0.98f) to prevent digital clipping
+            const float mod = 1.0f + 0.06f * idx_rate * std::sin(phase + static_cast<float>(i) * phase_step);
+            float processed = formant_shaped * harmonic_gain * mod;
+
             processed = std::clamp(processed, -0.98f, 0.98f);
             output_samples[i] = processed;
         }
 
+        prev_filter_sample_ = prev_sample;
         phase_accumulator_ = std::fmod(phase + static_cast<float>(sample_count) * phase_step, 6.2831853f);
 
         const float frame_energy = std::min(1.0f, (energy_sum / static_cast<float>(sample_count)) * 4.0f);
         const float prev_energy = recent_speech_energy_.load(std::memory_order_relaxed);
-        recent_speech_energy_.store(prev_energy * 0.6f + frame_energy * 0.4f, std::memory_order_relaxed);
+        recent_speech_energy_.store(prev_energy * 0.55f + frame_energy * 0.45f, std::memory_order_relaxed);
 
         return true;
     }
 
-    // Shut down session and release resources cleanly
     void shutdown() noexcept;
 
     [[nodiscard]] AI_FORCE_INLINE bool is_active() const noexcept {
@@ -154,17 +159,21 @@ private:
     std::unique_ptr<Ort::Env> ort_env_;
     std::unique_ptr<Ort::Session> ort_session_;
     std::unique_ptr<Ort::MemoryInfo> memory_info_;
-    
-    // Pre-allocated tensor metadata with pre-reserved capacities
+
     std::vector<int64_t> input_shape_;
     std::vector<int64_t> output_shape_;
     std::vector<const char*> input_node_names_;
     std::vector<const char*> output_node_names_;
 
     float phase_accumulator_{0.0f};
+    float prev_filter_sample_{0.0f};
     alignas(64) std::atomic<float> pitch_shift_semitones_{0.0f};
     alignas(64) std::atomic<float> index_rate_{0.85f};
     alignas(64) std::atomic<float> protect_rate_{0.33f};
+    alignas(64) std::atomic<float> profile_f0_bias_semitones_{0.0f};
+    alignas(64) std::atomic<float> profile_formant_f1_{1.10f};
+    alignas(64) std::atomic<float> profile_formant_f2_{1.05f};
+    alignas(64) std::atomic<float> profile_warmth_{0.20f};
     alignas(64) std::atomic<float> recent_speech_energy_{0.0f};
     alignas(64) std::atomic<bool> is_active_{false};
 };

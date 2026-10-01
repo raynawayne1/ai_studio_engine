@@ -24,7 +24,6 @@ public:
           mask_(capacity_ - 1),
           buffer_(capacity_) {}
 
-    // Called ONLY by the Producer thread
     bool push(const T& item) noexcept {
         const size_t current_tail = tail_.load(std::memory_order_relaxed);
         const size_t next_tail = (current_tail + 1) & mask_;
@@ -34,15 +33,14 @@ public:
             tail_.store(next_tail, std::memory_order_release);
             return true;
         }
-        return false; // Queue is completely full
+        return false;
     }
 
-    // Called ONLY by the Consumer thread
     bool pop(T& out_item) noexcept {
         const size_t current_head = head_.load(std::memory_order_relaxed);
         
         if (current_head == tail_.load(std::memory_order_acquire)) {
-            return false; // Queue is completely empty
+            return false;
         }
         
         out_item = buffer_[current_head];

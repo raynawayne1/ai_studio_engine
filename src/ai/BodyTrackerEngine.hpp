@@ -5,6 +5,7 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <cstdint>
 #include <opencv2/opencv.hpp>
 #include <onnxruntime_cxx_api.h>
 
@@ -36,16 +37,13 @@ public:
     ~BodyTrackerEngine() noexcept = default;
 
     // Process full-body frame, extracting 33 skeletal joints (face, hands, arms, torso, full body)
-    // EXTREME OPTIMIZATION: Zero-allocation hot path with temporal velocity smoothing
     void track_body(cv::Mat& frame, std::vector<JointCoordinates>& out_joints) noexcept;
     void track_body(const cv::Mat& frame, std::vector<JointCoordinates>& out_joints) noexcept;
 
-    // Optional garment / cloth & full-body posture overlay enhancement
+    // Skin-safe garment / cloth color transformation on the torso
     void apply_garment_overlay(cv::Mat& frame) const noexcept;
 
-    void set_garment_overlay_enabled(bool enabled) noexcept {
-        m_garment_overlay_enabled.store(enabled, std::memory_order_release);
-    }
+    void set_garment_overlay_enabled(bool enabled) noexcept;
     [[nodiscard]] bool is_garment_overlay_enabled() const noexcept {
         return m_garment_overlay_enabled.load(std::memory_order_acquire);
     }
@@ -55,21 +53,17 @@ public:
 
 private:
     void pre_allocate_tensors() noexcept;
-    
-    // Evaluates raised hands, hands holding body, full-body visibility, and garment bounds
     void analyze_kinematics(const std::vector<JointCoordinates>& joints, int frame_width, int frame_height) noexcept;
-
-    // Fast optical/skin keypoint estimator when ONNX model is a stub
     void estimate_fallback_joints(const cv::Mat& small_bgr_256, std::vector<JointCoordinates>& out_joints) noexcept;
 
     std::string m_model_path;
     std::unique_ptr<Ort::Session> m_session{nullptr};
     Ort::MemoryInfo m_memory_info{Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)};
-    
+
     // ZERO-LAG PRE-ALLOCATED BUFFERS
     std::vector<float> m_input_tensor_values;
-    std::vector<int64_t> m_input_shape{1, 3, 256, 256}; // Standard BlazePose/MediaPipe Input
-    std::vector<int64_t> m_output_shape{1, 132};        // 33 joints * 4 values
+    std::vector<int64_t> m_input_shape{1, 3, 256, 256};
+    std::vector<int64_t> m_output_shape{1, 132};
 
     std::vector<JointCoordinates> m_smoothed_joints;
     bool m_has_history{false};
@@ -78,9 +72,9 @@ private:
     BodyKinematicsState m_kinematics;
     mutable std::mutex m_kinematics_mutex;
 
-    // Pre-allocated OpenCV matrices to prevent malloc() stalls during video loop
     cv::Mat m_resized_buffer;
     cv::Mat m_float_buffer;
+    uint64_t m_frame_counter{0};
 };
 
 } // namespace ai_studio::ai

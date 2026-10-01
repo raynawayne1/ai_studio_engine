@@ -12,4 +12,4 @@ ui/node_modules/
 node_modules/
 third_party/
 models/*.onnx
-models/*.wav
+models/*.wavmodels/*.meta

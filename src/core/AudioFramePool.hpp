@@ -4,6 +4,7 @@
 #include "AudioFrame.hpp"
 #include <memory>
 #include <vector>
+#include <iostream>
 
 namespace ai_studio::core {
 
@@ -17,6 +18,9 @@ public:
             storage_.push_back(std::make_unique<AudioFrame>(samples_per_frame));
             (void)free_queue_.push(storage_.back().get());
         }
+        std::cout << "[DEBUG][src/core/AudioFramePool.hpp::AudioFramePool] Pre-allocated "
+                  << pool_size << " lock-free audio frames (" << samples_per_frame
+                  << " samples/frame @ 48kHz, aligned to 32 bytes).\n";
     }
 
     AudioFramePool(const AudioFramePool&) = delete;

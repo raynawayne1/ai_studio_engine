@@ -10,8 +10,12 @@ export interface VoiceProfile {
   displayName: string;
   sourcePath: string;
   modelPath: string;
+  f0Bias?: number;
+  formantF1?: number;
+  formantF2?: number;
   isCached: boolean;
-  createdAt: string;
+  input_gain?: number;
+  createdAt?: string;
 }
 
 export interface AudioVideoDevices {
@@ -25,6 +29,7 @@ export interface AudioVideoDevices {
 export interface EngineSettings {
   pitchShift: number;
   indexRate: number;
+  inputGain: number;
   protectRate: number;
   faceSwapEnabled: boolean;
   lipSyncEnabled: boolean;

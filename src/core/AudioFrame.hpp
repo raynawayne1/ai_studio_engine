@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <cstddef>
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -10,16 +11,14 @@
 
 namespace ai_studio::core {
 
-// alignas(32) ensures memory aligns perfectly for CPU AVX/NEON SIMD instructions.
+// alignas(32) ensures memory aligns perfectly for CPU AVX2/NEON SIMD instructions
 struct alignas(32) AudioFrame {
     std::vector<float> samples;
-    uint64_t timestamp_us;
-    bool is_valid;
+    uint64_t timestamp_us{0};
+    bool is_valid{false};
 
-    // Pre-allocate vector memory EXACTLY ONCE at startup. Zero runtime allocations.
     explicit AudioFrame(size_t max_samples) {
-        samples.reserve(max_samples);
-        samples.resize(max_samples, 0.0f);
+        samples.assign(max_samples, 0.0f);
         timestamp_us = 0;
         is_valid = false;
     }
@@ -31,7 +30,6 @@ struct alignas(32) AudioFrame {
 
     ~AudioFrame() = default;
 
-    // Reset for immediate reuse without releasing or reallocating memory
     void reset() noexcept {
         timestamp_us = 0;
         is_valid = false;

@@ -6,7 +6,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 find_package(Threads REQUIRED)
+include(CheckCXXCompilerFlag)
 
 # =========================================================================
 # LOCAL THIRD-PARTY SDK PATH RESOLUTION (macOS, Windows, Linux CI)
@@ -29,7 +34,7 @@ else()
     set(ONNXRUNTIME_LIBRARY "onnxruntime")
 endif()
 
-# 2. OpenCV Platform-Specific Resolution (Matches .github/workflows/build.yml)
+# 2. OpenCV Platform-Specific Resolution
 if(APPLE)
     set(OPENCV_INCLUDE_DIRS "${THIRD_PARTY_DIR}/opencv/include")
     set(OPENCV_LIBS "") # Resolved via runtime dynamic loader for Python wheel bundle
@@ -60,14 +65,12 @@ endif()
 
 add_executable(${PROJECT_NAME} ${VALID_SOURCES})
 
-# Include local headers normally, mark third-party includes as SYSTEM to suppress external warnings
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE 
     ${OPENCV_INCLUDE_DIRS}
     ${ONNXRUNTIME_INCLUDE_DIR}
 )
 
-# Link local and platform libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     Threads::Threads 
     ${OPENCV_LIBS}
@@ -75,10 +78,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 if(WIN32)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
     
-    # Automatically copy ONNX Runtime DLL next to executable
     if(EXISTS "${ONNXRUNTIME_LOCAL_DIR}/bin/onnxruntime.dll")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -87,7 +89,6 @@ if(WIN32)
         )
     endif()
 
-    # Automatically copy all OpenCV DLLs next to executable
     if(EXISTS "${OPENCV_LOCAL_DIR}/bin")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -100,11 +101,11 @@ elseif(APPLE)
         "-framework CoreML"
         "-framework Metal"
         "-framework Foundation"
+        "-framework Accelerate"
         ${CMAKE_DL_LIBS}
     )
     target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-undefined,dynamic_lookup")
 elseif(UNIX)
-    # Linux (Ubuntu): Link librt (for shm_open/shm_unlink) and libdl
     target_link_libraries(${PROJECT_NAME} PRIVATE rt ${CMAKE_DL_LIBS})
 endif()
 
@@ -112,7 +113,10 @@ endif()
 # MAXIMUM HARDWARE-NATIVE COMPILER OPTIMIZATIONS FOR ZERO LAG (<15ms)
 # =========================================================================
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX /O2 /fp:fast /Oi /Gy /DNDEBUG /D_CRT_SECURE_NO_WARNINGS)
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        /W4 /WX /O2 /Ob3 /fp:fast /Oi /Ot /Gy /GL /DNDEBUG /D_CRT_SECURE_NO_WARNINGS
+    )
+    target_link_options(${PROJECT_NAME} PRIVATE /LTCG)
 else()
     target_compile_options(${PROJECT_NAME} PRIVATE 
         -Wall 
@@ -122,13 +126,18 @@ else()
         -Wno-unknown-pragmas
         -O3 
         -ffast-math 
-        -march=native 
-        -mtune=native 
         -funroll-loops 
         -ftree-vectorize 
         -fomit-frame-pointer 
         -DNDEBUG
     )
+    check_cxx_compiler_flag("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
+    if(COMPILER_SUPPORTS_MARCH_NATIVE)
+        target_compile_options(${PROJECT_NAME} PRIVATE -march=native -mtune=native)
+    elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+        target_compile_options(${PROJECT_NAME} PRIVATE -mcpu=apple-m1)
+    endif()
+
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(${PROJECT_NAME} PRIVATE 
             -Wno-c11-extensions 

@@ -7,6 +7,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <cstdint>
 #include <opencv2/opencv.hpp>
 #include "../hw/HardwareManager.hpp"
 
@@ -23,6 +24,12 @@ public:
     // Starts capturing directly from a USB Type-C stream URL, device path, or local video file
     bool start_capture(const std::string& stream_or_file_path) noexcept;
 
+    // Starts direct zero-lag ingestion mode for the Built-In USB-C Phone Bridge
+    bool start_external_stream_mode(const std::string& source_label = "USB-C Phone Camera Bridge") noexcept;
+
+    // Pushes a raw JPEG frame from the USB-C Phone Bridge directly into the C++ triple buffer
+    bool push_external_frame(const uint8_t* jpeg_data, size_t jpeg_size) noexcept;
+
     // Dynamically auto-detects the fastest working camera or USB Type-C stream across OS
     bool start_auto_capture() noexcept;
     
@@ -34,6 +41,10 @@ public:
 
     // Sets a custom fallback stream URL (e.g., USB Type-C tunnel or RTSP/HTTP endpoint)
     void set_fallback_stream_url(const std::string& url) noexcept;
+
+    // Returns latest JPEG-encoded frames for real-time Electron UI rendering
+    [[nodiscard]] std::vector<uint8_t> get_latest_source_jpeg() const noexcept;
+    [[nodiscard]] std::vector<uint8_t> get_latest_output_jpeg() const noexcept;
 
     bool is_running() const noexcept { return m_running.load(std::memory_order_acquire); }
     double get_current_fps() const noexcept { return m_current_fps.load(std::memory_order_relaxed); }
@@ -56,6 +67,7 @@ private:
 
     cv::VideoCapture m_cap;
     std::atomic<bool> m_running{false};
+    std::atomic<bool> m_external_push_mode{false};
     bool m_is_file_or_stream{false};
     std::string m_active_endpoint;
     std::string m_active_source_name{"None"};
@@ -74,6 +86,11 @@ private:
     std::atomic<bool> m_has_new_frame{false};
     std::mutex m_swap_mutex;
     std::condition_variable m_frame_cv;
+
+    // JPEG Preview Buffers for Real-Time UI Streaming (/frame/source & /frame/output)
+    mutable std::mutex m_jpeg_mutex;
+    std::vector<uint8_t> m_latest_source_jpeg;
+    std::vector<uint8_t> m_latest_output_jpeg;
 
     // Real-time FPS Telemetry
     std::atomic<double> m_current_fps{0.0};

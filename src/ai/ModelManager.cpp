@@ -5,19 +5,24 @@
 namespace ai_studio::ai {
 
 ModelManager::ModelManager(std::filesystem::path models_directory) noexcept
-    : models_dir_(std::move(models_directory)) {}
+    : models_dir_(std::move(models_directory)) {
+    std::cout << "[DEBUG][src/ai/ModelManager.cpp::ModelManager] Initialized with models_directory="
+              << models_dir_.string() << '\n';
+}
 
 bool ModelManager::scan_local_models() noexcept {
     std::unique_lock lock(mutex_);
-    std::cout << "[Model Manager] Scanning local model cache directory: " << models_dir_.string() << "\n";
+    std::cout << "[DEBUG][src/ai/ModelManager.cpp::scan_local_models] Scanning local ONNX model directory: "
+              << models_dir_.string() << "\n";
     
     try {
         if (!std::filesystem::exists(models_dir_)) [[unlikely]] {
             std::filesystem::create_directories(models_dir_);
-            std::cout << "[Model Manager] Created local model cache directory successfully.\n";
+            std::cout << "[DEBUG][src/ai/ModelManager.cpp::scan_local_models] Created model directory successfully.\n";
             return true;
         }
 
+        size_t count = 0;
         for (const auto& entry : std::filesystem::directory_iterator(models_dir_)) {
             if (entry.is_regular_file() && entry.path().extension() == ".onnx") [[likely]] {
                 std::string model_id = entry.path().stem().string();
@@ -30,13 +35,16 @@ bool ModelManager::scan_local_models() noexcept {
                     true
                 });
 
-                std::cout << "[Model Manager] Discovered cached model: " << model_id 
-                          << " (" << (file_size / 1024) << " KB)\n";
+                std::cout << "[DEBUG][src/ai/ModelManager.cpp::scan_local_models] Found cached ONNX model: '"
+                          << model_id << "' (" << (file_size / 1024) << " KB)\n";
+                ++count;
             }
         }
+        std::cout << "[DEBUG][src/ai/ModelManager.cpp::scan_local_models] Scan complete. Total ONNX models verified: "
+                  << count << '\n';
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[Model Manager Error] Exception during directory scan: " << e.what() << "\n";
+        std::cerr << "[ERROR][src/ai/ModelManager.cpp::scan_local_models] Exception: " << e.what() << "\n";
         return false;
     }
 }
@@ -54,6 +62,8 @@ bool ModelManager::register_model(std::string_view model_id, const std::filesyst
                 file_size,
                 true
             });
+            std::cout << "[DEBUG][src/ai/ModelManager.cpp::register_model] Registered model: '"
+                      << id_str << "' (" << (file_size / 1024) << " KB)\n";
             return true;
         }
     } catch (...) {}

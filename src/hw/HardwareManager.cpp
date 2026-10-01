@@ -28,20 +28,20 @@
     #include <unistd.h>
 #endif
 
+#include <iostream>
 #include <thread>
 #include <fstream>
 #include <algorithm>
 #include <cstdlib>
 #include <cctype>
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/utils/logger.hpp>
 
 namespace ai_studio::hw {
 
-// Internal helper to perform the actual OS queries only once
 static SystemProfile query_os_for_capabilities() noexcept {
     SystemProfile profile;
 
-    // 1. Detect Operating System
     #if defined(_WIN32)
         profile.os_name = "Windows";
     #elif defined(__APPLE__)
@@ -52,7 +52,6 @@ static SystemProfile query_os_for_capabilities() noexcept {
         profile.os_name = "Unknown";
     #endif
 
-    // 2. Detect CPU Architecture
     #if defined(__x86_64__) || defined(_M_X64)
         profile.cpu_architecture = "x86_64";
     #elif defined(__aarch64__) || defined(_M_ARM64)
@@ -65,15 +64,13 @@ static SystemProfile query_os_for_capabilities() noexcept {
         profile.cpu_architecture = "Unknown Architecture";
     #endif
 
-    // 3. Detect Logical CPU Cores
     profile.logical_cores = std::thread::hardware_concurrency();
     if (profile.logical_cores == 0) {
-        profile.logical_cores = 1; // Safe fallback
+        profile.logical_cores = 1;
     }
 
-    // 4. Detect System RAM (Platform Specific)
     profile.total_ram_bytes = 0;
-    
+
     #if defined(_WIN32)
         MEMORYSTATUSEX status;
         status.dwLength = sizeof(status);
@@ -94,16 +91,17 @@ static SystemProfile query_os_for_capabilities() noexcept {
         }
     #endif
 
-    // Calculate human-readable GB
     profile.total_ram_gb = static_cast<double>(profile.total_ram_bytes) / (1024.0 * 1024.0 * 1024.0);
+
+    std::cout << "[DEBUG][src/hw/HardwareManager.cpp::query_os_for_capabilities] OS=" << profile.os_name
+              << " | Arch=" << profile.cpu_architecture
+              << " | Cores=" << profile.logical_cores
+              << " | RAM=" << profile.total_ram_gb << " GB\n";
 
     return profile;
 }
 
 const SystemProfile& HardwareManager::get_capabilities() noexcept {
-    // Thread-Safe C++ Magic Static: 
-    // Executes the heavy OS query exactly ONCE on the very first call.
-    // All subsequent calls return the cached memory instantly.
     static const SystemProfile cached_profile = query_os_for_capabilities();
     return cached_profile;
 }
@@ -119,7 +117,7 @@ bool HardwareManager::probe_local_stream_port(const std::string& host, int port,
         return false;
     }
 
-    u_long mode = 1; // Non-blocking
+    u_long mode = 1;
     ioctlsocket(sock, FIONBIO, &mode);
 
     sockaddr_in addr{};
@@ -185,9 +183,12 @@ bool HardwareManager::probe_local_stream_port(const std::string& host, int port,
 }
 
 std::vector<VideoDeviceDescriptor> HardwareManager::scan_video_devices() noexcept {
+    // Silence noisy OpenCV AVFoundation/DSHOW warnings during hardware index probe
+    cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_SILENT);
+
+    std::cout << "[DEBUG][src/hw/HardwareManager.cpp::scan_video_devices] Probing Internal, External USB, Virtual & USB-C Phone sources...\n";
     std::vector<VideoDeviceDescriptor> devices;
 
-    // 1. Choose optimal platform-specific backend to avoid slow fallbacks
 #if defined(_WIN32)
     const int preferred_backend = cv::CAP_DSHOW;
 #elif defined(__APPLE__)
@@ -198,36 +199,33 @@ std::vector<VideoDeviceDescriptor> HardwareManager::scan_video_devices() noexcep
     const int preferred_backend = cv::CAP_ANY;
 #endif
 
-    // 2. Scan hardware & virtual camera indices (0..5)
-    for (int idx = 0; idx < 6; ++idx) {
+    // 1. Scan hardware & virtual camera indices (stop immediately on first empty index on macOS/Windows)
+    for (int idx = 0; idx < 4; ++idx) {
         std::string dev_name = "Camera #" + std::to_string(idx);
         bool is_virtual = false;
 
 #if defined(__linux__)
-        // On Linux, read the exact hardware/virtual driver name directly from sysfs
         std::ifstream name_file("/sys/class/video4linux/video" + std::to_string(idx) + "/name");
         if (!name_file.is_open()) {
-            continue; // Device node does not exist; skip immediately in 0ms
+            continue;
         }
         std::getline(name_file, dev_name);
 #endif
 
         cv::VideoCapture test_cap(idx, preferred_backend);
-        if (!test_cap.isOpened()) {
-            test_cap.open(idx, cv::CAP_ANY);
-        }
-
         if (test_cap.isOpened()) {
             std::string lower_name = dev_name;
             std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(),
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
             if (lower_name.find("virtual") != std::string::npos ||
-                lower_name.find("camo") != std::string::npos ||
                 lower_name.find("obs") != std::string::npos ||
                 lower_name.find("loopback") != std::string::npos) {
                 is_virtual = true;
             }
+
+            std::cout << "[DEBUG][src/hw/HardwareManager.cpp::scan_video_devices] Found OS Camera Index " << idx
+                      << " (" << dev_name << ") | Virtual=" << (is_virtual ? "YES" : "NO") << '\n';
 
             devices.push_back(VideoDeviceDescriptor{
                 idx,
@@ -237,10 +235,13 @@ std::vector<VideoDeviceDescriptor> HardwareManager::scan_video_devices() noexcep
                 false
             });
             test_cap.release();
+        } else {
+            // If index 0 is not attached on macOS/Windows, stop probing higher indices immediately
+            break;
         }
     }
 
-    // 3. Probe Direct USB Type-C / ADB Forwarded Tunnels (<15ms non-blocking check)
+    // 2. Probe Direct USB Type-C / Built-in Phone Bridge / ADB Tunnels (<12ms non-blocking check)
     struct StreamCandidate {
         const char* host;
         int port;
@@ -249,13 +250,17 @@ std::vector<VideoDeviceDescriptor> HardwareManager::scan_video_devices() noexcep
     };
 
     static const StreamCandidate usb_candidates[] = {
-        {"127.0.0.1", 8080, "http://127.0.0.1:8080/video", "USB Type-C Stream (ADB :8080)"},
-        {"127.0.0.1", 4747, "http://127.0.0.1:4747/video", "USB Type-C Stream (DroidCam :4747)"},
-        {"127.0.0.1", 8554, "rtsp://127.0.0.1:8554/live",  "USB Type-C Stream (RTSP :8554)"}
+        {"127.0.0.1",      8766, "usb_phone_push",                   "Built-In USB-C Phone Camera Bridge (:8766)"},
+        {"127.0.0.1",      8080, "http://127.0.0.1:8080/video",      "USB Type-C Phone Stream (:8080)"},
+        {"127.0.0.1",      4747, "http://127.0.0.1:4747/video",      "USB Type-C Phone Stream (:4747)"},
+        {"192.168.42.129", 8080, "http://192.168.42.129:8080/video", "Android USB-C Tethered Camera (192.168.42.129)"},
+        {"127.0.0.1",      8554, "rtsp://127.0.0.1:8554/live",       "USB Type-C RTSP Stream (:8554)"}
     };
 
     for (const auto& candidate : usb_candidates) {
-        if (probe_local_stream_port(candidate.host, candidate.port, 15)) {
+        if (probe_local_stream_port(candidate.host, candidate.port, 12)) {
+            std::cout << "[DEBUG][src/hw/HardwareManager.cpp::scan_video_devices] Active USB-C / Stream Port Detected: "
+                      << candidate.label << " -> " << candidate.url << '\n';
             devices.push_back(VideoDeviceDescriptor{
                 -1,
                 candidate.label,
@@ -266,7 +271,6 @@ std::vector<VideoDeviceDescriptor> HardwareManager::scan_video_devices() noexcep
         }
     }
 
-    // 4. Check environment override (AI_STUDIO_CAMERA_URL)
     if (const char* env_url = std::getenv("AI_STUDIO_CAMERA_URL")) {
         std::string custom_url(env_url);
         if (!custom_url.empty()) {
@@ -280,6 +284,8 @@ std::vector<VideoDeviceDescriptor> HardwareManager::scan_video_devices() noexcep
         }
     }
 
+    std::cout << "[DEBUG][src/hw/HardwareManager.cpp::scan_video_devices] Scan complete. Total video sources found: "
+              << devices.size() << '\n';
     return devices;
 }
 
